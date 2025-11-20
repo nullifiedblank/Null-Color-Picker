@@ -22,9 +22,6 @@ def create_app_icon():
     painter.setBrush(QColor("#000000"))
     painter.drawEllipse(12, 12, 40, 40)
 
-    # 'Null' slash or stylized N?
-    # Let's do a simple diagonal split or a droplet.
-
     # Droplet shape
     path = QPainterPath()
     path.moveTo(32, 16)
@@ -36,4 +33,45 @@ def create_app_icon():
 
     painter.end()
 
+    return QIcon(pixmap)
+
+def create_gear_icon():
+    """
+    Generates a gear/settings icon.
+    """
+    size = 40
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+
+    # Center
+    cx, cy = size / 2, size / 2
+
+    painter.setBrush(QColor("#e0e0e0"))
+    painter.setPen(Qt.NoPen)
+
+    # Draw gear teeth (circle with notches)
+    # Simplify: Draw a star-like shape or just a ring with teeth
+
+    painter.save()
+    painter.translate(cx, cy)
+
+    # Draw 8 teeth
+    for i in range(8):
+        painter.rotate(45)
+        painter.drawRect(-3, -14, 6, 8)
+
+    painter.restore()
+
+    # Main body
+    painter.drawEllipse(QPoint(int(cx), int(cy)), 11, 11)
+
+    # Inner hole (transparent/background color)
+    painter.setBrush(QColor("#121212")) # Match background or make transparent via CompositionMode
+    painter.setCompositionMode(QPainter.CompositionMode_Clear)
+    painter.drawEllipse(QPoint(int(cx), int(cy)), 5, 5)
+
+    painter.end()
     return QIcon(pixmap)

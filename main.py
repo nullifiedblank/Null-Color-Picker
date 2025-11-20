@@ -10,7 +10,8 @@ from PySide6.QtGui import QColor, QPainter, QPen, QCursor, QIcon, QPixmap, QGuiA
 
 from styles import STYLESHEET
 from color_logic import generate_palettes, rgb_to_hex
-from icon_gen import create_app_icon
+from icon_gen import create_app_icon, create_gear_icon
+from widgets import ToggleSwitch, CopyLabel, FlashFrame, PaletteItem
 
 # --- Platform Specific Imports ---
 IS_WINDOWS = platform.system() == 'Windows'
@@ -115,6 +116,7 @@ class SettingsDialog(QDialog):
         self.settings = current_settings or {}
 
         layout = QVBoxLayout()
+        layout.setSpacing(15)
         self.setLayout(layout)
 
         # Sample Size Group
@@ -135,12 +137,15 @@ class SettingsDialog(QDialog):
 
         # Window Options
         window_group = QGroupBox("Window Options")
-        window_layout = QVBoxLayout()
+        window_layout = QHBoxLayout() # Use HBox for Toggle
+        window_layout.setAlignment(Qt.AlignLeft)
 
-        self.always_on_top_chk = QCheckBox("Always on Top")
-        self.always_on_top_chk.setChecked(self.settings.get("always_on_top", False))
+        lbl = QLabel("Always on Top")
+        self.toggle_switch = ToggleSwitch()
+        self.toggle_switch.setChecked(self.settings.get("always_on_top", False))
 
-        window_layout.addWidget(self.always_on_top_chk)
+        window_layout.addWidget(lbl)
+        window_layout.addWidget(self.toggle_switch)
         window_group.setLayout(window_layout)
         layout.addWidget(window_group)
 
@@ -166,7 +171,7 @@ class SettingsDialog(QDialog):
 
         new_settings = {
             "sample_size": size,
-            "always_on_top": self.always_on_top_chk.isChecked()
+            "always_on_top": self.toggle_switch.isChecked()
         }
 
         self.settings_changed.emit(new_settings)
@@ -223,13 +228,6 @@ class MagnifierWindow(QWidget):
 
         self.pixmap = ScreenSampler.grab_area(grab_x, grab_y, self.grab_size, self.grab_size)
 
-        # Calculate average color for selection if needed, or just center pixel for display?
-        # The prompt says "take the 'average' of the area selected".
-        # But for real-time display in the magnifier, showing the average might be confusing if it's just one solid color.
-        # Usually magnifiers show pixels.
-        # I will COMPUTE the average for the `current_color` variable (which is what gets picked),
-        # but I will still show the zoomed pixels so the user knows what they are aiming at.
-
         self.current_color = ScreenSampler.get_average_color(pos.x(), pos.y(), self.sample_size)
 
         self.repaint()
@@ -246,10 +244,6 @@ class MagnifierWindow(QWidget):
         # Draw Crosshair / Sample Box
         center_x = self.width() // 2
         center_y = self.height() // 2
-
-        # If sample size is > 1, show the area being sampled?
-        # 1 pixel in source = 10 pixels in target.
-        # So if sample size is 3, we show a 30x30 box.
 
         pixel_visual_size = self.zoom_level
         sample_visual_size = self.sample_size * pixel_visual_size
@@ -282,29 +276,12 @@ class MagnifierWindow(QWidget):
         if event.key() == Qt.Key_Escape:
             self.stop()
 
-class ColorSwatch(QFrame):
-    clicked = Signal(tuple)
-
-    def __init__(self, r, g, b, size=30, is_history=False):
-        super().__init__()
-        self.color = (r, g, b)
-        self.hex = rgb_to_hex(r, g, b)
-
-        self.setObjectName("HistorySwatch" if is_history else "Swatch")
-        self.setFixedSize(size, size)
-        self.setStyleSheet(f"background-color: {self.hex};")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip(f"RGB: {r},{g},{b}\nHEX: {self.hex}")
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit(self.color)
-
 class PaletteRow(QWidget):
     def __init__(self, title, colors):
         super().__init__()
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2) # Reduced spacing
         self.setLayout(layout)
 
         title_lbl = QLabel(title)
@@ -314,27 +291,13 @@ class PaletteRow(QWidget):
         container = QFrame()
         container.setObjectName("PaletteBox")
         h_layout = QHBoxLayout()
-        h_layout.setContentsMargins(10, 10, 10, 10)
+        h_layout.setContentsMargins(5, 5, 5, 5)
+        h_layout.setSpacing(10)
         container.setLayout(h_layout)
 
         for c_data in colors:
-            v_box = QWidget()
-            v_layout = QVBoxLayout()
-            v_layout.setContentsMargins(0,0,0,0)
-            v_layout.setAlignment(Qt.AlignCenter)
-            v_box.setLayout(v_layout)
-
-            rgb = c_data['rgb']
-            swatch = ColorSwatch(*rgb, size=40)
-
-            hex_lbl = QLabel(c_data['hex'])
-            hex_lbl.setObjectName("HexLabel")
-            hex_lbl.setAlignment(Qt.AlignCenter)
-
-            v_layout.addWidget(swatch)
-            v_layout.addWidget(hex_lbl)
-
-            h_layout.addWidget(v_box)
+            item = PaletteItem(*c_data['rgb'])
+            h_layout.addWidget(item)
 
         layout.addWidget(container)
 
@@ -369,17 +332,16 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        main_layout.setSpacing(20)
+        main_layout.setSpacing(10) # Reduced spacing
+        main_layout.setContentsMargins(10, 10, 10, 10)
 
         # 1. Top Bar: Settings + Eyedropper + Preview
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(10)
 
         # Settings Button
         self.settings_btn = QPushButton()
-        self.settings_btn.setIcon(QIcon.fromTheme("preferences-system")) # Fallback
-        # Since themes might not work, let's put text or a unicode char if icon fails,
-        # but we have a stylesheet for IconButton.
-        self.settings_btn.setText("⚙")
+        self.settings_btn.setIcon(create_gear_icon())
         self.settings_btn.setObjectName("IconButton")
         self.settings_btn.setFixedSize(40, 40)
         self.settings_btn.setCursor(Qt.PointingHandCursor)
@@ -388,8 +350,6 @@ class MainWindow(QMainWindow):
 
         # Eyedropper Button
         self.eyedropper_btn = QPushButton(" Eyedropper")
-        # self.eyedropper_btn.setIcon(QIcon.fromTheme("color-picker"))
-        # Use our custom icon?
         self.eyedropper_btn.setIcon(create_app_icon())
         self.eyedropper_btn.setObjectName("EyedropperButton")
         self.eyedropper_btn.setCursor(Qt.PointingHandCursor)
@@ -399,15 +359,16 @@ class MainWindow(QMainWindow):
         # Selected Color Info
         self.selected_preview = QFrame()
         self.selected_preview.setObjectName("PreviewFrame")
-        self.selected_preview.setFixedSize(80, 80)
+        self.selected_preview.setFixedSize(70, 70) # Slightly smaller
         self.selected_preview.setStyleSheet(f"background-color: #FFFFFF; border: 1px solid #333; border-radius: 10px;")
         top_bar.addWidget(self.selected_preview)
 
         self.color_info_layout = QVBoxLayout()
-        self.hex_label = QLabel("#FFFFFF")
-        self.hex_label.setStyleSheet("font-size: 24px; font-weight: bold; font-family: monospace; color: #ffffff;")
-        self.rgb_label = QLabel("rgb(255, 255, 255)")
-        self.rgb_label.setStyleSheet("font-size: 14px; color: #aaaaaa;")
+        self.color_info_layout.setSpacing(0)
+        self.hex_label = CopyLabel("#FFFFFF")
+        self.hex_label.setStyleSheet("font-size: 22px; font-weight: bold; font-family: monospace; color: #ffffff;")
+        self.rgb_label = CopyLabel("rgb(255, 255, 255)")
+        self.rgb_label.setStyleSheet("font-size: 13px; color: #aaaaaa;")
 
         self.color_info_layout.addWidget(self.hex_label)
         self.color_info_layout.addWidget(self.rgb_label)
@@ -423,6 +384,7 @@ class MainWindow(QMainWindow):
 
         self.history_container = QHBoxLayout()
         self.history_container.setAlignment(Qt.AlignLeft)
+        self.history_container.setSpacing(5)
         main_layout.addLayout(self.history_container)
 
         # 3. Color Theory Palettes (Scrollable)
@@ -435,6 +397,8 @@ class MainWindow(QMainWindow):
         self.palette_content = QWidget()
         self.palette_content.setObjectName("PaletteContainer")
         self.palette_layout = QVBoxLayout(self.palette_content)
+        self.palette_layout.setSpacing(5)
+        self.palette_layout.setContentsMargins(0,0,0,0)
         scroll.setWidget(self.palette_content)
 
         main_layout.addWidget(scroll)
@@ -478,18 +442,23 @@ class MainWindow(QMainWindow):
                 child.widget().deleteLater()
 
         for c in reversed(self.history):
-            swatch = ColorSwatch(*c, size=30, is_history=True)
-            swatch.clicked.connect(self.update_ui_with_color)
+            hex_val = rgb_to_hex(*c)
+            # History uses FlashFrame directly
+            swatch = FlashFrame(hex_val, is_history=True)
+            swatch.setFixedSize(30, 30)
+            swatch.clicked.connect(lambda col=c: self.update_ui_with_color(col))
+            swatch.setToolTip(f"RGB: {c[0]},{c[1]},{c[2]}\nHEX: {hex_val}")
             self.history_container.addWidget(swatch)
 
     def update_ui_with_color(self, color):
         r, g, b = color
         self.current_color = color
         hex_val = rgb_to_hex(r, g, b)
+        rgb_str = f"rgb({r}, {g}, {b})"
 
         self.selected_preview.setStyleSheet(f"background-color: {hex_val}; border: 1px solid #333; border-radius: 10px;")
         self.hex_label.setText(hex_val)
-        self.rgb_label.setText(f"rgb({r}, {g}, {b})")
+        self.rgb_label.setText(rgb_str)
 
         self.generate_and_show_palettes(r, g, b)
 

@@ -6,7 +6,7 @@ QMainWindow {
 }
 
 QWidget {
-    font-family: 'Inter', 'Roboto', 'Segoe UI', monospace;
+    font-family: 'Roboto', 'Inter', 'Segoe UI', monospace;
     font-size: 14px;
     color: #e0e0e0;
 }
@@ -18,9 +18,9 @@ QLabel {
 
 QLabel#SectionTitle {
     font-weight: bold;
-    font-size: 16px;
-    margin-top: 10px;
-    margin-bottom: 5px;
+    font-size: 15px;
+    margin-top: 8px;
+    margin-bottom: 4px;
     color: #ffffff;
 }
 
@@ -29,7 +29,7 @@ QPushButton {
     background-color: #1e1e1e;
     border: 1px solid #333333;
     border-radius: 8px;
-    padding: 8px 16px;
+    padding: 6px 12px;
     font-weight: bold;
     color: #e0e0e0;
 }
@@ -47,9 +47,9 @@ QPushButton:pressed {
 QPushButton#EyedropperButton {
     background-color: #ffffff;
     color: #000000;
-    border-radius: 12px;
-    padding: 12px;
-    font-size: 16px;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 15px;
 }
 
 QPushButton#EyedropperButton:hover {
@@ -60,6 +60,7 @@ QPushButton#EyedropperButton:hover {
 QPushButton#IconButton {
     background-color: transparent;
     border: none;
+    border-radius: 20px;
 }
 QPushButton#IconButton:hover {
     background-color: #2c2c2c;
@@ -89,15 +90,18 @@ QWidget#PaletteContainer {
 QFrame#PaletteBox {
     border: 1px solid #333333;
     border-radius: 8px;
-    padding: 10px;
-    margin-bottom: 10px;
+    padding: 8px;
+    margin-bottom: 8px;
     background-color: #1e1e1e;
 }
 
-QLabel#HexLabel {
+QLabel#CodeLabel {
     font-family: monospace;
-    font-size: 12px;
+    font-size: 11px;
     color: #aaaaaa;
+}
+QLabel#CodeLabel:hover {
+    color: #ffffff;
 }
 
 /* Selected Preview Area */
@@ -115,7 +119,7 @@ QDialog {
 QGroupBox {
     border: 1px solid #333333;
     border-radius: 6px;
-    margin-top: 10px;
+    margin-top: 8px;
     color: #e0e0e0;
 }
 QGroupBox::title {
@@ -123,5 +127,39 @@ QGroupBox::title {
     subcontrol-position: top left;
     padding: 0 5px;
     color: #aaaaaa;
+}
+
+/* ComboBox */
+QComboBox {
+    background-color: #1e1e1e;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    padding: 5px;
+    color: #e0e0e0;
+    min-width: 6em;
+}
+
+QComboBox:hover {
+    border-color: #555555;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 20px;
+    border-left-width: 0px;
+    border-left-color: darkgray;
+    border-left-style: solid;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #1e1e1e;
+    color: #e0e0e0;
+    selection-background-color: #333333;
+    selection-color: #ffffff;
+    border: 1px solid #333333;
+    outline: none;
 }
 """
