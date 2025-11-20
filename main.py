@@ -284,20 +284,30 @@ class PaletteRow(QWidget):
         layout.setSpacing(2) # Reduced spacing
         self.setLayout(layout)
 
-        title_lbl = QLabel(title)
-        title_lbl.setObjectName("SectionTitle")
-        layout.addWidget(title_lbl)
+        # Removed external title label as requested
 
         container = QFrame()
         container.setObjectName("PaletteBox")
-        h_layout = QHBoxLayout()
-        h_layout.setContentsMargins(5, 5, 5, 5)
-        h_layout.setSpacing(10)
-        container.setLayout(h_layout)
+        container_layout = QVBoxLayout()
+        container_layout.setContentsMargins(10, 10, 10, 10)
+        container_layout.setSpacing(5)
+        container.setLayout(container_layout)
+
+        # Inner Title
+        inner_title = QLabel(title)
+        inner_title.setObjectName("PaletteTitle")
+        inner_title.setAlignment(Qt.AlignCenter)
+        container_layout.addWidget(inner_title)
+
+        # Items
+        items_layout = QHBoxLayout()
+        items_layout.setSpacing(10)
+        items_layout.setAlignment(Qt.AlignCenter)
+        container_layout.addLayout(items_layout)
 
         for c_data in colors:
             item = PaletteItem(*c_data['rgb'])
-            h_layout.addWidget(item)
+            items_layout.addWidget(item)
 
         layout.addWidget(container)
 
@@ -305,7 +315,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Null Color Picker")
-        self.resize(500, 700)
+        # Fixed window size - 600px width to accommodate palette items comfortably, 800px height
+        self.setFixedSize(600, 800)
 
         # Set App Icon
         self.setWindowIcon(create_app_icon())
@@ -388,9 +399,7 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(self.history_container)
 
         # 3. Color Theory Palettes (Scrollable)
-        palette_label = QLabel("Color Theory")
-        palette_label.setObjectName("SectionTitle")
-        main_layout.addWidget(palette_label)
+        # Removed "Color Theory" label as requested
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

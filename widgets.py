@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout,
                                QAbstractButton, QApplication)
-from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QRect, QEasingCurve, QSize, QTimer
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QRect, QEasingCurve, QSize, QTimer, Property
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QClipboard, QCursor
 
 class ToggleSwitch(QAbstractButton):
@@ -33,7 +33,7 @@ class ToggleSwitch(QAbstractButton):
         self._handle_position = pos
         self.update()
 
-    handle_position = property(get_handle_position, set_handle_position)
+    handle_position = Property(float, get_handle_position, set_handle_position)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -161,18 +161,20 @@ class PaletteItem(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.setAlignment(Qt.AlignCenter)
+        layout.setAlignment(Qt.AlignCenter) # Centers widgets in the vertical layout
         self.setLayout(layout)
 
         # Color Box
         self.box = FlashFrame(self.hex_val)
         self.box.setFixedSize(40, 40)
-        # If clicked, maybe set main color? (Not required by prompt for palette items, only history.
-        # But 'copy color code' is required)
 
         # Labels
         self.hex_lbl = CopyLabel(self.hex_val)
         self.rgb_lbl = CopyLabel(self.rgb_val)
+
+        # To ensure the box is centered horizontally, Qt.AlignCenter in VBox helps,
+        # but let's be explicit if needed.
+        # VBox with AlignCenter centers items horizontally.
 
         layout.addWidget(self.box)
         layout.addWidget(self.hex_lbl)
@@ -184,11 +186,3 @@ class PaletteItem(QWidget):
 
     def on_label_hover(self, hovered):
         self.box.set_outline(hovered)
-        # Also outline the label itself?
-        # CopyLabel handles its own hover text color change via stylesheet (CodeLabel:hover)
-        # But the prompt said: "outline the corresponding color box too" -> Done.
-        # "outline to the hovered color code" -> Done via :hover style (color change to white is typical for dark mode focus).
-        # Or actual border? Text with border looks bad. Changing color to bright white is cleaner.
-        # The prompt asked for "Add an outline to the hovered color code".
-        # I'll stick to text color change for cleanliness, but if outline is strictly required, I'd need a frame around the label.
-        # Let's assume visual highlighting is the goal.

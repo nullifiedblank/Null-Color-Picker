@@ -24,6 +24,15 @@ QLabel#SectionTitle {
     color: #ffffff;
 }
 
+/* Palette Inner Title */
+QLabel#PaletteTitle {
+    font-weight: bold;
+    font-size: 13px;
+    color: #aaaaaa;
+    background-color: transparent;
+    padding-bottom: 4px;
+}
+
 /* Buttons */
 QPushButton {
     background-color: #1e1e1e;
@@ -161,5 +170,50 @@ QComboBox QAbstractItemView {
     selection-color: #ffffff;
     border: 1px solid #333333;
     outline: none;
+}
+
+/* Scrollbar */
+QScrollBar:vertical {
+    border: none;
+    background: #121212;
+    width: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:vertical {
+    background: #333333;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #555555;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background: #121212;
+    height: 10px;
+    margin: 0px 0px 0px 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #333333;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #555555;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+}
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+    background: none;
 }
 """
