@@ -252,23 +252,46 @@ class MagnifierWindow(QWidget):
             painter.drawPixmap(target_rect, self.pixmap)
 
         # Draw Crosshair / Sample Box
-        center_x = self.width() // 2
-        center_y = self.height() // 2
+        # Align to grid: 200x200 window, 10x zoom.
+        # Center pixel (or sample area) should be visually centered.
+        # Pixel 0 starts at 0. Pixel 10 starts at 100.
+        # Box should start at width // 2 (100).
+
+        box_x = self.width() // 2
+        box_y = self.height() // 2
 
         pixel_visual_size = self.zoom_level
         sample_visual_size = self.sample_size * pixel_visual_size
 
         # Draw box around sampled area
-        box_x = center_x - (sample_visual_size // 2)
-        box_y = center_y - (sample_visual_size // 2)
+        # To center a sample size > 1 (e.g. 3x3 -> 30px), we need to offset by half the sample visual size.
+        # But if sample size is 1 (10px), we draw at box_x, box_y?
+        # Wait. If 10x10 pixel at index 10. It covers 100->110.
+        # box_x = 100. So drawing at box_x is correct for the top-left of the center pixel.
+
+        # If sample size is 3x3. It covers indices 9, 10, 11? Or 10, 11, 12?
+        # `get_average_color` logic: start_x = x - (size // 2).
+        # If size=3, start_x = x - 1. It grabs x-1, x, x+1.
+        # So visual box should cover pixels -1, 0, +1 relative to center.
+        # Center pixel is at 100.
+        # -1 pixel is at 90.
+        # So visual box should start at 100 - (1 * 10) = 90.
+        # General formula:
+        # center_visual_pixel_start = 100
+        # offset_pixels = (self.sample_size // 2)
+        # start_draw_x = 100 - (offset_pixels * 10)
+
+        offset_pixels = self.sample_size // 2
+        draw_x = box_x - (offset_pixels * self.zoom_level)
+        draw_y = box_y - (offset_pixels * self.zoom_level)
 
         # Contrast border (White)
         painter.setPen(QPen(QColor(255, 255, 255), 1))
-        painter.drawRect(box_x - 1, box_y - 1, sample_visual_size + 2, sample_visual_size + 2)
+        painter.drawRect(draw_x - 1, draw_y - 1, sample_visual_size + 2, sample_visual_size + 2)
 
         # Black border
         painter.setPen(QPen(QColor(0, 0, 0), 1))
-        painter.drawRect(box_x, box_y, sample_visual_size, sample_visual_size)
+        painter.drawRect(draw_x, draw_y, sample_visual_size, sample_visual_size)
 
         # Outer border
         painter.setPen(QPen(QColor(0, 0, 0), 4))

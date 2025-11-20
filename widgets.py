@@ -109,10 +109,11 @@ class FlashFrame(QFrame):
     """
     clicked = Signal()
 
-    def __init__(self, color_hex, parent=None, is_history=False):
+    def __init__(self, color_hex, parent=None, is_history=False, interactive=True):
         super().__init__(parent)
         self.color_hex = color_hex
         self.is_history = is_history
+        self.interactive = interactive
 
         obj_name = "HistorySwatch" if is_history else "Swatch"
         self.setObjectName(obj_name)
@@ -120,20 +121,28 @@ class FlashFrame(QFrame):
         self.default_style = f"background-color: {self.color_hex};"
         self.setStyleSheet(self.default_style)
 
-        if is_history:
+        if is_history or interactive:
             self.setCursor(Qt.PointingHandCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
 
         self.flash_timer = QTimer(self)
         self.flash_timer.timeout.connect(self.reset_style)
         self.flash_timer.setSingleShot(True)
 
     def set_outline(self, active):
+        # Only show outline if interactive (or implied requirement to show outline on palette items but not click)
+        # The requirement was "Color boxes shouldnt be clickable nor have an onclick flash".
+        # But previous requirement "outline to the hovered color box" is likely for palette items too.
+        # I will allow outline, but block clicks.
         if active:
             self.setStyleSheet(f"background-color: {self.color_hex}; border: 2px solid #ffffff;")
         else:
             self.setStyleSheet(self.default_style)
 
     def enterEvent(self, event):
+        # Assuming external control or internal? PaletteItem uses set_outline externally.
+        # History uses internal hover.
         if self.is_history:
             self.set_outline(True)
         super().enterEvent(event)
@@ -144,18 +153,26 @@ class FlashFrame(QFrame):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
+        if not self.interactive:
+            return
+
         if event.button() == Qt.LeftButton:
             self.flash_effect()
             self.clicked.emit()
 
     def flash_effect(self):
+        if not self.interactive: return
+
         # Flash border black -> white -> normal
-        # We set white border temporarily
         self.setStyleSheet(f"background-color: {self.color_hex}; border: 3px solid #ffffff;")
         self.flash_timer.start(100)
 
     def reset_style(self):
         # Check if still hovered?
+        # Note: palette items are controlled externally via set_outline.
+        # History items are internal.
+        # If we are resetting flash, we revert to either hover state or default.
+
         if self.underMouse() and self.is_history:
              self.setStyleSheet(f"background-color: {self.color_hex}; border: 2px solid #ffffff;")
         else:
@@ -177,8 +194,8 @@ class PaletteItem(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         self.setLayout(layout)
 
-        # Color Box
-        self.box = FlashFrame(self.hex_val)
+        # Color Box - Non-interactive for clicks/flash
+        self.box = FlashFrame(self.hex_val, interactive=False)
         self.box.setFixedSize(40, 40)
 
         # Labels
