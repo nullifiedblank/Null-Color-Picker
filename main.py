@@ -127,8 +127,8 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.resize(300, 200)
 
-        # Remove default button context help
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        # Use Popup flag for close-on-click-outside behavior
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
 
         self.settings = current_settings or {}
 
@@ -142,7 +142,7 @@ class SettingsDialog(QDialog):
 
         self.sample_combo = QComboBox()
         self.sample_combo.addItems(["Point Sample (1x1)", "3x3 Average", "5x5 Average", "7x7 Average"])
-        self.sample_combo.currentIndexChanged.connect(self.trigger_save) # Auto save on change
+        # Removed auto-save triggers to prevent freezing during interaction
 
         # Set current index
         current_size = self.settings.get("sample_size", 1)
@@ -161,7 +161,7 @@ class SettingsDialog(QDialog):
         lbl = QLabel("Always on Top")
         self.toggle_switch = ToggleSwitch()
         self.toggle_switch.setChecked(self.settings.get("always_on_top", False))
-        self.toggle_switch.stateChanged.connect(self.trigger_save) # Auto save on change
+        # Removed auto-save triggers to prevent freezing during interaction
 
         window_layout.addWidget(lbl)
         window_layout.addWidget(self.toggle_switch)
@@ -171,10 +171,6 @@ class SettingsDialog(QDialog):
         layout.addStretch()
 
         # Removed Save/Cancel buttons as requested
-
-    def trigger_save(self):
-        # Called immediately on change
-        self.save_settings()
 
     def save_settings(self):
         size_text = self.sample_combo.currentText()
@@ -456,6 +452,12 @@ class MainWindow(QMainWindow):
     def open_settings(self):
         dlg = SettingsDialog(self, self.app_settings)
         dlg.settings_changed.connect(self.apply_settings)
+
+        # Position the popup near the button
+        btn_pos = self.settings_btn.mapToGlobal(QPoint(0, self.settings_btn.height()))
+        # Adjust if off-screen (simple adjustment)
+        dlg.move(btn_pos)
+
         dlg.exec()
 
     def apply_settings(self, settings):

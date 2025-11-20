@@ -62,7 +62,8 @@ class CopyLabel(QLabel):
         self.setObjectName("CodeLabel")
         self.setCursor(Qt.PointingHandCursor)
         self.setAlignment(Qt.AlignCenter)
-        self.base_style = "" # Initialize base style
+        self.base_style = "padding: 5px 8px;" # Add padding by default
+        self.setStyleSheet(self.base_style)
 
         # Flash timer
         self.flash_timer = QTimer(self)
@@ -86,11 +87,12 @@ class CopyLabel(QLabel):
     def flash_effect(self):
         # Capture current style if we aren't already flashing
         if not self.flash_timer.isActive():
-             self.base_style = self.styleSheet()
+             # Ensure base style is preserved, but we are setting it in init now
+             pass
 
         # Flash background white, rounded corners, black text
-        # This prevents layout shift from font-weight change
-        self.setStyleSheet(self.base_style + "; background-color: #ffffff; color: #000000; border-radius: 4px;")
+        # Appending to base_style to keep padding
+        self.setStyleSheet(self.base_style + "background-color: #ffffff; color: #000000; border-radius: 4px;")
         self.flash_timer.start(150)
 
     def reset_style(self):
