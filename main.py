@@ -121,9 +121,9 @@ class MagnifierWindow(QWidget):
             return
 
         pos = QCursor.pos()
-        # Center the window on the cursor
-        # We offset by -width/2, -height/2
-        self.move(pos.x() - self.width() // 2, pos.y() - self.height() // 2)
+        # Offset the window so it doesn't block the cursor
+        # Move to bottom-right: +30px, +30px
+        self.move(pos.x() + 30, pos.y() + 30)
 
         # Grab screen content around cursor
         # x - 10, y - 10, 20x20
