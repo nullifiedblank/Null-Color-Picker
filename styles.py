@@ -119,9 +119,16 @@ QLabel#CodeLabel {
     font-family: monospace;
     font-size: 11px;
     color: #aaaaaa;
+    padding: 5px 8px; /* Default padding */
+    border-radius: 4px; /* Rounded corners */
 }
 QLabel#CodeLabel:hover {
     color: #ffffff;
+}
+/* Flashing State via Property */
+QLabel#CodeLabel[flashing="true"] {
+    background-color: #ffffff;
+    color: #000000;
 }
 
 /* Selected Preview Area */
@@ -226,5 +233,33 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 }
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: none;
+}
+
+/* Contrast Checker Styles */
+QLineEdit {
+    background-color: #1e1e1e;
+    border: 1px solid #333333;
+    border-radius: 6px;
+    padding: 6px;
+    color: #ffffff;
+    font-family: monospace;
+}
+QFrame#PreviewBox {
+    border: 1px solid #333333;
+    border-radius: 8px;
+}
+QLabel#ResultLabel {
+    font-weight: bold;
+    font-size: 13px;
+}
+QLabel#PassFail {
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-weight: bold;
+    font-size: 12px;
+}
+QLabel#SuggestionLabel {
+    color: #aaaaaa;
+    font-style: italic;
 }
 """

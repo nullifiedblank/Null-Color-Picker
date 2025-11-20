@@ -12,6 +12,7 @@ from styles import STYLESHEET
 from color_logic import generate_palettes, rgb_to_hex
 from icon_gen import create_app_icon, create_gear_icon
 from widgets import ToggleSwitch, CopyLabel, FlashFrame, PaletteItem
+from contrast_ui import ContrastCheckerDialog
 
 def load_icon():
     """
@@ -142,7 +143,6 @@ class SettingsDialog(QDialog):
 
         self.sample_combo = QComboBox()
         self.sample_combo.addItems(["Point Sample (1x1)", "3x3 Average", "5x5 Average", "7x7 Average"])
-        # Removed auto-save triggers to prevent freezing during interaction
 
         # Set current index
         current_size = self.settings.get("sample_size", 1)
@@ -161,7 +161,6 @@ class SettingsDialog(QDialog):
         lbl = QLabel("Always on Top")
         self.toggle_switch = ToggleSwitch()
         self.toggle_switch.setChecked(self.settings.get("always_on_top", False))
-        # Removed auto-save triggers to prevent freezing during interaction
 
         window_layout.addWidget(lbl)
         window_layout.addWidget(self.toggle_switch)
@@ -169,8 +168,6 @@ class SettingsDialog(QDialog):
         layout.addWidget(window_group)
 
         layout.addStretch()
-
-        # Removed Save/Cancel buttons as requested
 
     def save_settings(self):
         size_text = self.sample_combo.currentText()
@@ -345,14 +342,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Null Color Picker")
-        # Fixed window size - 600px width to accommodate palette items comfortably, 800px height
-        self.setFixedSize(600, 800)
+        # Increased width for better layout
+        self.setFixedSize(750, 800)
 
         # Set App Icon
         self.setWindowIcon(load_icon())
 
-        # Logic
-        self.history = []
+        # Logic: Initialize History with Black and White
+        self.history = [(0,0,0), (255,255,255)]
         self.current_color = (255, 255, 255)
         self.app_settings = {
             "sample_size": 1,
@@ -366,6 +363,9 @@ class MainWindow(QMainWindow):
         self.magnifier = MagnifierWindow()
         self.magnifier.color_selected.connect(self.add_color)
 
+        # Contrast Checker
+        self.contrast_dialog = None # Lazy load
+
         # Initial State
         self.update_ui_with_color((255, 255, 255))
 
@@ -376,18 +376,27 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(10) # Reduced spacing
         main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # 1. Top Bar: Settings + Eyedropper + Preview
+        # 1. Top Bar: Settings + Contrast + Eyedropper + Preview
         top_bar = QHBoxLayout()
         top_bar.setSpacing(10)
 
         # Settings Button
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(create_gear_icon())
-        self.settings_btn.setObjectName("SettingsButton") # Updated ID
+        self.settings_btn.setObjectName("SettingsButton")
         self.settings_btn.setFixedSize(40, 40)
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.clicked.connect(self.open_settings)
         top_bar.addWidget(self.settings_btn)
+
+        # Contrast Checker Button
+        self.contrast_btn = QPushButton(" Contrast")
+        # Use simple unicode or standard icon if available
+        self.contrast_btn.setIcon(QIcon.fromTheme("applications-graphics"))
+        self.contrast_btn.setObjectName("EyedropperButton") # Reuse style
+        self.contrast_btn.setCursor(Qt.PointingHandCursor)
+        self.contrast_btn.clicked.connect(self.open_contrast_checker)
+        top_bar.addWidget(self.contrast_btn)
 
         # Eyedropper Button
         self.eyedropper_btn = QPushButton(" Eyedropper")
@@ -403,14 +412,14 @@ class MainWindow(QMainWindow):
         # Color Info (Right Aligned)
         self.color_info_layout = QVBoxLayout()
         self.color_info_layout.setSpacing(0)
-        self.color_info_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter) # Right aligned
+        self.color_info_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         self.hex_label = CopyLabel("#FFFFFF")
         self.hex_label.setStyleSheet("font-size: 22px; font-weight: bold; font-family: monospace; color: #ffffff;")
-        self.hex_label.setAlignment(Qt.AlignRight) # Right text
+        self.hex_label.setAlignment(Qt.AlignRight)
         self.rgb_label = CopyLabel("rgb(255, 255, 255)")
         self.rgb_label.setStyleSheet("font-size: 13px; color: #aaaaaa;")
-        self.rgb_label.setAlignment(Qt.AlignRight) # Right text
+        self.rgb_label.setAlignment(Qt.AlignRight)
 
         self.color_info_layout.addWidget(self.hex_label)
         self.color_info_layout.addWidget(self.rgb_label)
@@ -431,13 +440,11 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(history_label)
 
         self.history_container = QHBoxLayout()
-        self.history_container.setAlignment(Qt.AlignCenter) # Centered History
+        self.history_container.setAlignment(Qt.AlignCenter)
         self.history_container.setSpacing(5)
         main_layout.addLayout(self.history_container)
 
-        # 3. Color Theory Palettes (Scrollable)
-        # Removed "Color Theory" label as requested
-
+        # 3. Color Theory Palettes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         self.palette_content = QWidget()
@@ -453,28 +460,76 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self, self.app_settings)
         dlg.settings_changed.connect(self.apply_settings)
 
-        # Position the popup near the button
         btn_pos = self.settings_btn.mapToGlobal(QPoint(0, self.settings_btn.height()))
-        # Adjust if off-screen (simple adjustment)
         dlg.move(btn_pos)
 
         dlg.exec()
 
     def apply_settings(self, settings):
+        # Defer update to prevent freezing if dialog is closing
+        QTimer.singleShot(100, lambda: self._apply_settings_deferred(settings))
+
+    def _apply_settings_deferred(self, settings):
         self.app_settings = settings
 
-        # Apply Always on Top
+        # Apply Always on Top safely
+        current_flags = self.windowFlags()
+        new_flags = current_flags
+
         if settings["always_on_top"]:
-            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+            new_flags |= Qt.WindowStaysOnTopHint
         else:
-            self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
-        self.show() # Need to show again after changing flags
+            new_flags &= ~Qt.WindowStaysOnTopHint
+
+        if new_flags != current_flags:
+            self.setWindowFlags(new_flags)
+            self.show()
 
         # Apply Sample Size
         self.magnifier.set_sample_size(settings["sample_size"])
 
+    def open_contrast_checker(self):
+        if not self.contrast_dialog:
+            self.contrast_dialog = ContrastCheckerDialog(self)
+            self.contrast_dialog.request_color_pick.connect(self.activate_contrast_picker)
+        self.contrast_dialog.show()
+        self.contrast_dialog.raise_()
+        self.contrast_dialog.activateWindow()
+
     def activate_eyedropper(self):
+        # Normal eyedropper
+        try:
+            self.magnifier.color_selected.disconnect(self.return_contrast_color)
+        except:
+            pass # Wasn't connected
+        self.magnifier.color_selected.connect(self.add_color)
         self.magnifier.start()
+
+    def activate_contrast_picker(self, is_fg):
+        # Picker for contrast dialog
+        try:
+            self.magnifier.color_selected.disconnect(self.add_color)
+        except:
+            pass # Wasn't connected
+
+        # Use a partial or lambda to track target
+        # Need to disconnect previous lambda if any?
+        # Simplest: Store target
+        self.contrast_target_is_fg = is_fg
+        self.magnifier.color_selected.connect(self.return_contrast_color)
+        self.magnifier.start()
+
+    def return_contrast_color(self, color):
+        try:
+            self.magnifier.color_selected.disconnect(self.return_contrast_color)
+        except:
+            pass
+        # Reconnect main logic
+        self.magnifier.color_selected.connect(self.add_color)
+
+        if self.contrast_dialog:
+            hex_val = rgb_to_hex(*color)
+            self.contrast_dialog.receive_picked_color(hex_val, self.contrast_target_is_fg)
 
     def add_color(self, color):
         if len(self.history) >= 15:
@@ -495,7 +550,6 @@ class MainWindow(QMainWindow):
 
         for c in reversed(self.history):
             hex_val = rgb_to_hex(*c)
-            # History uses FlashFrame directly
             swatch = FlashFrame(hex_val, is_history=True)
             swatch.setFixedSize(30, 30)
             swatch.clicked.connect(lambda col=c: self.update_ui_with_color(col))

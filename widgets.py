@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import (QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout,
-                               QAbstractButton, QApplication)
+                               QAbstractButton, QApplication, QStyle)
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QRect, QEasingCurve, QSize, QTimer, Property
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QClipboard, QCursor
 
@@ -54,6 +54,7 @@ class ToggleSwitch(QAbstractButton):
 class CopyLabel(QLabel):
     """
     A label that copies its text to clipboard on click and signals interactions.
+    Uses dynamic property to handle flash styling without resetting font styles.
     """
     hovered = Signal(bool)
 
@@ -62,8 +63,8 @@ class CopyLabel(QLabel):
         self.setObjectName("CodeLabel")
         self.setCursor(Qt.PointingHandCursor)
         self.setAlignment(Qt.AlignCenter)
-        self.base_style = "padding: 5px 8px;" # Add padding by default
-        self.setStyleSheet(self.base_style)
+
+        self._flashing = False
 
         # Flash timer
         self.flash_timer = QTimer(self)
@@ -84,19 +85,23 @@ class CopyLabel(QLabel):
         self.hovered.emit(False)
         super().leaveEvent(event)
 
-    def flash_effect(self):
-        # Capture current style if we aren't already flashing
-        if not self.flash_timer.isActive():
-             # Ensure base style is preserved, but we are setting it in init now
-             pass
+    def get_flashing(self):
+        return self._flashing
 
-        # Flash background white, rounded corners, black text
-        # Appending to base_style to keep padding
-        self.setStyleSheet(self.base_style + "background-color: #ffffff; color: #000000; border-radius: 4px;")
+    def set_flashing(self, val):
+        self._flashing = val
+        # Trigger style update
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    flashing = Property(bool, get_flashing, set_flashing)
+
+    def flash_effect(self):
+        self.set_flashing(True)
         self.flash_timer.start(150)
 
     def reset_style(self):
-        self.setStyleSheet(self.base_style)
+        self.set_flashing(False)
 
 class FlashFrame(QFrame):
     """
