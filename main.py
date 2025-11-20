@@ -13,6 +13,20 @@ from color_logic import generate_palettes, rgb_to_hex
 from icon_gen import create_app_icon, create_gear_icon
 from widgets import ToggleSwitch, CopyLabel, FlashFrame, PaletteItem
 
+def load_icon():
+    """
+    Loads icon.ico or icon.png if present, otherwise falls back to generated icon.
+    Handles PyInstaller's _MEIPASS path.
+    """
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+
+    for name in ["icon.ico", "icon.png"]:
+        path = os.path.join(base_path, name)
+        if os.path.exists(path):
+            return QIcon(path)
+
+    return create_app_icon()
+
 # --- Platform Specific Imports ---
 IS_WINDOWS = platform.system() == 'Windows'
 if IS_WINDOWS:
@@ -339,7 +353,7 @@ class MainWindow(QMainWindow):
         self.setFixedSize(600, 800)
 
         # Set App Icon
-        self.setWindowIcon(create_app_icon())
+        self.setWindowIcon(load_icon())
 
         # Logic
         self.history = []
@@ -381,7 +395,7 @@ class MainWindow(QMainWindow):
 
         # Eyedropper Button
         self.eyedropper_btn = QPushButton(" Eyedropper")
-        self.eyedropper_btn.setIcon(create_app_icon())
+        self.eyedropper_btn.setIcon(load_icon())
         self.eyedropper_btn.setObjectName("EyedropperButton")
         self.eyedropper_btn.setCursor(Qt.PointingHandCursor)
         self.eyedropper_btn.clicked.connect(self.activate_eyedropper)
