@@ -65,7 +65,18 @@ QPushButton#EyedropperButton:hover {
     background-color: #dddddd;
 }
 
-/* Icon Button (Settings) */
+/* Settings Button (Updated) */
+QPushButton#SettingsButton {
+    background-color: transparent;
+    border: 1px solid #444444;
+    border-radius: 8px;
+}
+QPushButton#SettingsButton:hover {
+    background-color: #2c2c2c;
+    border-color: #666666;
+}
+
+/* Icon Button (Fallback) */
 QPushButton#IconButton {
     background-color: transparent;
     border: none;

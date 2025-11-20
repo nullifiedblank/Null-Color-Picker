@@ -284,8 +284,6 @@ class PaletteRow(QWidget):
         layout.setSpacing(2) # Reduced spacing
         self.setLayout(layout)
 
-        # Removed external title label as requested
-
         container = QFrame()
         container.setObjectName("PaletteBox")
         container_layout = QVBoxLayout()
@@ -301,13 +299,17 @@ class PaletteRow(QWidget):
 
         # Items
         items_layout = QHBoxLayout()
-        items_layout.setSpacing(10)
-        items_layout.setAlignment(Qt.AlignCenter)
+        items_layout.setSpacing(0)
+        items_layout.setContentsMargins(0, 0, 0, 0)
+        # items_layout.setAlignment(Qt.AlignCenter) # Removing this to let stretch work
         container_layout.addLayout(items_layout)
 
+        # Distribute items evenly with stretch
+        items_layout.addStretch(1)
         for c_data in colors:
             item = PaletteItem(*c_data['rgb'])
             items_layout.addWidget(item)
+            items_layout.addStretch(1)
 
         layout.addWidget(container)
 
@@ -353,7 +355,7 @@ class MainWindow(QMainWindow):
         # Settings Button
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(create_gear_icon())
-        self.settings_btn.setObjectName("IconButton")
+        self.settings_btn.setObjectName("SettingsButton") # Updated ID
         self.settings_btn.setFixedSize(40, 40)
         self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.clicked.connect(self.open_settings)
@@ -367,24 +369,31 @@ class MainWindow(QMainWindow):
         self.eyedropper_btn.clicked.connect(self.activate_eyedropper)
         top_bar.addWidget(self.eyedropper_btn)
 
-        # Selected Color Info
-        self.selected_preview = QFrame()
-        self.selected_preview.setObjectName("PreviewFrame")
-        self.selected_preview.setFixedSize(70, 70) # Slightly smaller
-        self.selected_preview.setStyleSheet(f"background-color: #FFFFFF; border: 1px solid #333; border-radius: 10px;")
-        top_bar.addWidget(self.selected_preview)
+        # Stretch to push text to right
+        top_bar.addStretch()
 
+        # Color Info (Right Aligned)
         self.color_info_layout = QVBoxLayout()
         self.color_info_layout.setSpacing(0)
+        self.color_info_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter) # Right aligned
+
         self.hex_label = CopyLabel("#FFFFFF")
         self.hex_label.setStyleSheet("font-size: 22px; font-weight: bold; font-family: monospace; color: #ffffff;")
+        self.hex_label.setAlignment(Qt.AlignRight) # Right text
         self.rgb_label = CopyLabel("rgb(255, 255, 255)")
         self.rgb_label.setStyleSheet("font-size: 13px; color: #aaaaaa;")
+        self.rgb_label.setAlignment(Qt.AlignRight) # Right text
 
         self.color_info_layout.addWidget(self.hex_label)
         self.color_info_layout.addWidget(self.rgb_label)
         top_bar.addLayout(self.color_info_layout)
-        top_bar.addStretch()
+
+        # Selected Color Preview (Right most)
+        self.selected_preview = QFrame()
+        self.selected_preview.setObjectName("PreviewFrame")
+        self.selected_preview.setFixedSize(70, 70)
+        self.selected_preview.setStyleSheet(f"background-color: #FFFFFF; border: 1px solid #333; border-radius: 10px;")
+        top_bar.addWidget(self.selected_preview)
 
         main_layout.addLayout(top_bar)
 
@@ -394,7 +403,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(history_label)
 
         self.history_container = QHBoxLayout()
-        self.history_container.setAlignment(Qt.AlignLeft)
+        self.history_container.setAlignment(Qt.AlignCenter) # Centered History
         self.history_container.setSpacing(5)
         main_layout.addLayout(self.history_container)
 

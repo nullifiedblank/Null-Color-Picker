@@ -83,12 +83,17 @@ class CopyLabel(QLabel):
         super().leaveEvent(event)
 
     def flash_effect(self):
-        # Simple flash: change color to white then back
-        self.setStyleSheet("color: #ffffff; font-weight: bold;")
+        # Capture current style if not already captured
+        if not hasattr(self, 'base_style') or not self.base_style:
+             self.base_style = self.styleSheet()
+
+        # Append flash style
+        self.setStyleSheet(self.base_style + "; color: #ffffff; font-weight: bold;")
         self.flash_timer.start(150)
 
     def reset_style(self):
-        self.setStyleSheet("")
+        if hasattr(self, 'base_style'):
+            self.setStyleSheet(self.base_style)
 
 class FlashFrame(QFrame):
     """
