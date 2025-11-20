@@ -113,6 +113,9 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.resize(300, 200)
 
+        # Remove default button context help
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
         self.settings = current_settings or {}
 
         layout = QVBoxLayout()
@@ -125,6 +128,7 @@ class SettingsDialog(QDialog):
 
         self.sample_combo = QComboBox()
         self.sample_combo.addItems(["Point Sample (1x1)", "3x3 Average", "5x5 Average", "7x7 Average"])
+        self.sample_combo.currentIndexChanged.connect(self.trigger_save) # Auto save on change
 
         # Set current index
         current_size = self.settings.get("sample_size", 1)
@@ -137,12 +141,13 @@ class SettingsDialog(QDialog):
 
         # Window Options
         window_group = QGroupBox("Window Options")
-        window_layout = QHBoxLayout() # Use HBox for Toggle
+        window_layout = QHBoxLayout()
         window_layout.setAlignment(Qt.AlignLeft)
 
         lbl = QLabel("Always on Top")
         self.toggle_switch = ToggleSwitch()
         self.toggle_switch.setChecked(self.settings.get("always_on_top", False))
+        self.toggle_switch.stateChanged.connect(self.trigger_save) # Auto save on change
 
         window_layout.addWidget(lbl)
         window_layout.addWidget(self.toggle_switch)
@@ -151,16 +156,11 @@ class SettingsDialog(QDialog):
 
         layout.addStretch()
 
-        # Buttons
-        btn_layout = QHBoxLayout()
-        save_btn = QPushButton("Save")
-        save_btn.clicked.connect(self.save_settings)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
+        # Removed Save/Cancel buttons as requested
 
-        btn_layout.addWidget(save_btn)
-        btn_layout.addWidget(cancel_btn)
-        layout.addLayout(btn_layout)
+    def trigger_save(self):
+        # Called immediately on change
+        self.save_settings()
 
     def save_settings(self):
         size_text = self.sample_combo.currentText()
@@ -175,7 +175,10 @@ class SettingsDialog(QDialog):
         }
 
         self.settings_changed.emit(new_settings)
-        self.accept()
+
+    def closeEvent(self, event):
+        self.save_settings()
+        super().closeEvent(event)
 
 class MagnifierWindow(QWidget):
     color_selected = Signal(tuple) # r, g, b
@@ -301,15 +304,30 @@ class PaletteRow(QWidget):
         items_layout = QHBoxLayout()
         items_layout.setSpacing(0)
         items_layout.setContentsMargins(0, 0, 0, 0)
-        # items_layout.setAlignment(Qt.AlignCenter) # Removing this to let stretch work
         container_layout.addLayout(items_layout)
 
-        # Distribute items evenly with stretch
+        # Distribute items evenly with stretch and vertical lines
         items_layout.addStretch(1)
-        for c_data in colors:
+        for i, c_data in enumerate(colors):
+            # Add Vertical Line Separator if not first item
+            if i > 0:
+                vline = QFrame()
+                vline.setFrameShape(QFrame.VLine)
+                vline.setFrameShadow(QFrame.Sunken)
+                vline.setFixedWidth(1)
+                vline.setStyleSheet("background-color: #333333;") # Faint gray
+                vline.setFixedHeight(40) # Height of color box approx
+
+                # Wrap in widget to center vertically if needed, or just add
+                # Add spacing around line
+                items_layout.addSpacing(10)
+                items_layout.addWidget(vline)
+                items_layout.addSpacing(10)
+
             item = PaletteItem(*c_data['rgb'])
             items_layout.addWidget(item)
-            items_layout.addStretch(1)
+
+        items_layout.addStretch(1)
 
         layout.addWidget(container)
 

@@ -62,6 +62,7 @@ class CopyLabel(QLabel):
         self.setObjectName("CodeLabel")
         self.setCursor(Qt.PointingHandCursor)
         self.setAlignment(Qt.AlignCenter)
+        self.base_style = "" # Initialize base style
 
         # Flash timer
         self.flash_timer = QTimer(self)
@@ -83,17 +84,17 @@ class CopyLabel(QLabel):
         super().leaveEvent(event)
 
     def flash_effect(self):
-        # Capture current style if not already captured
-        if not hasattr(self, 'base_style') or not self.base_style:
+        # Capture current style if we aren't already flashing
+        if not self.flash_timer.isActive():
              self.base_style = self.styleSheet()
 
-        # Append flash style
-        self.setStyleSheet(self.base_style + "; color: #ffffff; font-weight: bold;")
+        # Flash background white, rounded corners, black text
+        # This prevents layout shift from font-weight change
+        self.setStyleSheet(self.base_style + "; background-color: #ffffff; color: #000000; border-radius: 4px;")
         self.flash_timer.start(150)
 
     def reset_style(self):
-        if hasattr(self, 'base_style'):
-            self.setStyleSheet(self.base_style)
+        self.setStyleSheet(self.base_style)
 
 class FlashFrame(QFrame):
     """
@@ -166,7 +167,7 @@ class PaletteItem(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.setAlignment(Qt.AlignCenter) # Centers widgets in the vertical layout
+        layout.setAlignment(Qt.AlignCenter)
         self.setLayout(layout)
 
         # Color Box
@@ -177,13 +178,10 @@ class PaletteItem(QWidget):
         self.hex_lbl = CopyLabel(self.hex_val)
         self.rgb_lbl = CopyLabel(self.rgb_val)
 
-        # To ensure the box is centered horizontally, Qt.AlignCenter in VBox helps,
-        # but let's be explicit if needed.
-        # VBox with AlignCenter centers items horizontally.
-
-        layout.addWidget(self.box)
-        layout.addWidget(self.hex_lbl)
-        layout.addWidget(self.rgb_lbl)
+        # Ensure strict alignment
+        layout.addWidget(self.box, 0, Qt.AlignCenter)
+        layout.addWidget(self.hex_lbl, 0, Qt.AlignCenter)
+        layout.addWidget(self.rgb_lbl, 0, Qt.AlignCenter)
 
         # Connect Hover Signals
         self.hex_lbl.hovered.connect(self.on_label_hover)
