@@ -4,12 +4,13 @@ import os
 import platform
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                                QHBoxLayout, QPushButton, QLabel, QFrame, QGridLayout,
-                               QScrollArea, QSizePolicy)
+                               QScrollArea, QSizePolicy, QDialog, QComboBox, QCheckBox, QGroupBox)
 from PySide6.QtCore import Qt, QTimer, Signal, QSize, QPoint
-from PySide6.QtGui import QColor, QPainter, QPen, QCursor, QIcon, QPixmap, QGuiApplication
+from PySide6.QtGui import QColor, QPainter, QPen, QCursor, QIcon, QPixmap, QGuiApplication, QAction
 
 from styles import STYLESHEET
 from color_logic import generate_palettes, rgb_to_hex
+from icon_gen import create_app_icon
 
 # --- Platform Specific Imports ---
 IS_WINDOWS = platform.system() == 'Windows'
@@ -62,7 +63,114 @@ class ScreenSampler:
         # grabWindow(windowId, x, y, width, height). 0 is root window.
         return screen.grabWindow(0, x, y, width, height)
 
+    @staticmethod
+    def get_average_color(x, y, size):
+        """
+        Calculates the average color of a square area of 'size' centered at (x, y).
+        """
+        if size <= 1:
+            return ScreenSampler.get_pixel_color(x, y)
+
+        # Determine top-left corner
+        start_x = x - (size // 2)
+        start_y = y - (size // 2)
+
+        # Grab the area
+        pixmap = ScreenSampler.grab_area(start_x, start_y, size, size)
+        if pixmap.isNull():
+            return 0, 0, 0
+
+        image = pixmap.toImage()
+
+        total_r, total_g, total_b = 0, 0, 0
+        count = 0
+
+        for i in range(image.width()):
+            for j in range(image.height()):
+                c = image.pixelColor(i, j)
+                total_r += c.red()
+                total_g += c.green()
+                total_b += c.blue()
+                count += 1
+
+        if count == 0:
+            return 0, 0, 0
+
+        return (
+            int(total_r / count),
+            int(total_g / count),
+            int(total_b / count)
+        )
+
 # --- UI Components ---
+
+class SettingsDialog(QDialog):
+    settings_changed = Signal(dict)
+
+    def __init__(self, parent=None, current_settings=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.resize(300, 200)
+
+        self.settings = current_settings or {}
+
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+
+        # Sample Size Group
+        sample_group = QGroupBox("Sample Size")
+        sample_layout = QVBoxLayout()
+
+        self.sample_combo = QComboBox()
+        self.sample_combo.addItems(["Point Sample (1x1)", "3x3 Average", "5x5 Average", "7x7 Average"])
+
+        # Set current index
+        current_size = self.settings.get("sample_size", 1)
+        index_map = {1: 0, 3: 1, 5: 2, 7: 3}
+        self.sample_combo.setCurrentIndex(index_map.get(current_size, 0))
+
+        sample_layout.addWidget(self.sample_combo)
+        sample_group.setLayout(sample_layout)
+        layout.addWidget(sample_group)
+
+        # Window Options
+        window_group = QGroupBox("Window Options")
+        window_layout = QVBoxLayout()
+
+        self.always_on_top_chk = QCheckBox("Always on Top")
+        self.always_on_top_chk.setChecked(self.settings.get("always_on_top", False))
+
+        window_layout.addWidget(self.always_on_top_chk)
+        window_group.setLayout(window_layout)
+        layout.addWidget(window_group)
+
+        layout.addStretch()
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        save_btn = QPushButton("Save")
+        save_btn.clicked.connect(self.save_settings)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+
+        btn_layout.addWidget(save_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+    def save_settings(self):
+        size_text = self.sample_combo.currentText()
+        size = 1
+        if "3x3" in size_text: size = 3
+        elif "5x5" in size_text: size = 5
+        elif "7x7" in size_text: size = 7
+
+        new_settings = {
+            "sample_size": size,
+            "always_on_top": self.always_on_top_chk.isChecked()
+        }
+
+        self.settings_changed.emit(new_settings)
+        self.accept()
 
 class MagnifierWindow(QWidget):
     color_selected = Signal(tuple) # r, g, b
@@ -77,37 +185,23 @@ class MagnifierWindow(QWidget):
         self.timer.timeout.connect(self.update_view)
 
         self.current_color = (0, 0, 0)
-
-        # To prevent capturing the magnifier itself, we might need to be careful.
-        # But usually grabWindow(0) grabs screen content.
-        # If the magnifier is non-rectangular or transparent, it helps.
-        # However, since we are following the mouse, we are drawing OVER what we want to see.
-        # We should grab the screen slightly BEFORE moving the window or handle it carefully.
-        # Actually, we capture the area AROUND the mouse. If the window is centered on mouse,
-        # we are blocking it.
-        # Standard eyedroppers hide cursor or use a custom cursor.
-        # The requirement says "Cursor changes to an eyedropper" and "Magnifier window follows the cursor".
-        # If the magnifier follows the cursor, it shouldn't be *under* the cursor, or it should be transparent to input.
-        # But we need to see the pixels *under* the cursor.
-        # Simple trick: Offset the magnifier slightly OR make the center transparent?
-        # No, the prompt says "Displays a crosshair in the center. On click: The center pixel becomes selected."
-        # This implies the user points with the center of the magnifier?
-        # Usually, the magnifier is offset (like next to the cursor) but shows the area UNDER the cursor.
-        # Or the cursor is hidden, and the magnifier center IS the cursor.
-        # Let's go with: Magnifier center IS the cursor position.
+        self.sample_size = 1 # Default
 
         self.zoom_level = 10
-        self.grab_size = 20 # 20x20 pixels -> 200x200 window
+        self.grab_size = 20
 
         self.is_active = False
+
+    def set_sample_size(self, size):
+        self.sample_size = size
 
     def start(self):
         self.is_active = True
         self.setMouseTracking(True)
         self.timer.start(16) # ~60 FPS
         self.show()
-        self.grabKeyboard() # To catch ESC
-        self.grabMouse()    # To catch clicks everywhere
+        self.grabKeyboard()
+        self.grabMouse()
 
     def stop(self):
         self.is_active = False
@@ -121,61 +215,22 @@ class MagnifierWindow(QWidget):
             return
 
         pos = QCursor.pos()
-        # Offset the window so it doesn't block the cursor
-        # Move to bottom-right: +30px, +30px
+        # Offset to bottom-right
         self.move(pos.x() + 30, pos.y() + 30)
 
-        # Grab screen content around cursor
-        # x - 10, y - 10, 20x20
         grab_x = pos.x() - (self.grab_size // 2)
         grab_y = pos.y() - (self.grab_size // 2)
 
-        # We need to hide momentarily to grab? No, `grabWindow` usually grabs what's on screen.
-        # If our window is on top, we capture ourself!
-        # One solution: Make window fully transparent to input and "transparent for capture" if possible?
-        # Win32 API has styles for "layered windows" that are click-through but visible.
-        # But grabWindow typically grabs the framebuffer.
-        # WORKAROUND: Since we are drawing the zoomed pixels, we can't have the window there when we grab.
-        # But flickering is bad.
-        # Win32 GetPixel reads from the DC, often ignoring overlay windows depending on flags.
-        # Qt's grabWindow might capture this window.
-
-        # Better approach for "Magnifier follows cursor":
-        # Don't make the window cover the cursor exactly, or use a "shape" that has a hole?
-        # Or, rely on the OS composition.
-
-        # Let's try grabbing. If we see the crosshair recursively, we have a problem.
-        # The requirement says: "10x zoom of the surrounding pixels... center pixel becomes selected".
-
-        # Let's use a trick: The magnifier is strictly a visual aid.
-        # We read the pixel using GetPixel (which reads underlying desktop usually).
-        # But `grabWindow` definitely captures overlays in Qt.
-
-        # Alternative: Offset the magnifier so it doesn't cover the exact pixel we are sampling?
-        # "Magnifier window follows the cursor" usually implies it's attached to it.
-        # If I look at standard tools, the magnifier is often offset to the bottom-right.
-        # Let's try to center it, but if we see recursion, we'll offset.
-
-        # Actually, if I use Win32 GetPixel, it reads the true screen color often.
-        # But for the "Zoomed Image", we need `grabWindow`.
-
-        # Let's assume for now we want it centered.
-        # To avoid self-capture in Qt, we might need to hide, grab, show.
-        # But that causes flicker.
-        # Another way: Set window opacity to 0, grab, set back? Still flicker.
-        # Best way: Offset.
-        # But the prompt says "Displays a crosshair in the center... On click: The center pixel becomes selected."
-        # This strongly implies the "hotspot" is the center of the magnifier window.
-
-        # I will try to make the widget have a "hole" or just use the underlying OS behavior.
-        # On Windows `grabWindow(0)` often captures everything.
-
-        # Let's try an OFFSET approach if the user moves the mouse.
-        # Actually, let's just implement it centered and see. If it's an issue, I can't easily fix it without running it.
-        # I'll stick to the logic: Grab area around mouse.
-
         self.pixmap = ScreenSampler.grab_area(grab_x, grab_y, self.grab_size, self.grab_size)
-        self.current_color = ScreenSampler.get_pixel_color(pos.x(), pos.y())
+
+        # Calculate average color for selection if needed, or just center pixel for display?
+        # The prompt says "take the 'average' of the area selected".
+        # But for real-time display in the magnifier, showing the average might be confusing if it's just one solid color.
+        # Usually magnifiers show pixels.
+        # I will COMPUTE the average for the `current_color` variable (which is what gets picked),
+        # but I will still show the zoomed pixels so the user knows what they are aiming at.
+
+        self.current_color = ScreenSampler.get_average_color(pos.x(), pos.y(), self.sample_size)
 
         self.repaint()
 
@@ -184,48 +239,43 @@ class MagnifierWindow(QWidget):
 
         # Draw zoomed image
         if hasattr(self, 'pixmap') and not self.pixmap.isNull():
-            # Disable smoothing for pixelated look
             painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
             target_rect = self.rect()
             painter.drawPixmap(target_rect, self.pixmap)
 
-        # Draw Crosshair
+        # Draw Crosshair / Sample Box
         center_x = self.width() // 2
         center_y = self.height() // 2
 
-        pen = QPen(QColor(0, 0, 0))
-        pen.setWidth(1)
-        painter.setPen(pen)
+        # If sample size is > 1, show the area being sampled?
+        # 1 pixel in source = 10 pixels in target.
+        # So if sample size is 3, we show a 30x30 box.
 
-        # A box around the center pixel?
-        # 1 pixel in source = 10 pixels in target (zoom 10x)
-        # Center pixel is at center_x, center_y. It occupies 10x10 area.
-        # Because we scaled 20px -> 200px.
-        pixel_size = self.zoom_level
+        pixel_visual_size = self.zoom_level
+        sample_visual_size = self.sample_size * pixel_visual_size
 
-        # Draw box around center pixel
-        box_x = center_x - (pixel_size // 2)
-        box_y = center_y - (pixel_size // 2)
+        # Draw box around sampled area
+        box_x = center_x - (sample_visual_size // 2)
+        box_y = center_y - (sample_visual_size // 2)
 
-        # Contrast border
+        # Contrast border (White)
         painter.setPen(QPen(QColor(255, 255, 255), 1))
-        painter.drawRect(box_x - 1, box_y - 1, pixel_size + 2, pixel_size + 2)
+        painter.drawRect(box_x - 1, box_y - 1, sample_visual_size + 2, sample_visual_size + 2)
 
+        # Black border
         painter.setPen(QPen(QColor(0, 0, 0), 1))
-        painter.drawRect(box_x, box_y, pixel_size, pixel_size)
+        painter.drawRect(box_x, box_y, sample_visual_size, sample_visual_size)
 
-        # Outer border of the magnifier
+        # Outer border
         painter.setPen(QPen(QColor(0, 0, 0), 4))
         painter.drawRect(0, 0, self.width(), self.height())
 
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # Confirm selection
             self.color_selected.emit(self.current_color)
             self.stop()
         elif event.button() == Qt.RightButton:
-            # Cancel
             self.stop()
 
     def keyPressEvent(self, event):
@@ -233,7 +283,7 @@ class MagnifierWindow(QWidget):
             self.stop()
 
 class ColorSwatch(QFrame):
-    clicked = Signal(tuple) # r, g, b
+    clicked = Signal(tuple)
 
     def __init__(self, r, g, b, size=30, is_history=False):
         super().__init__()
@@ -244,8 +294,6 @@ class ColorSwatch(QFrame):
         self.setFixedSize(size, size)
         self.setStyleSheet(f"background-color: {self.hex};")
         self.setCursor(Qt.PointingHandCursor)
-
-        # Tooltip
         self.setToolTip(f"RGB: {r},{g},{b}\nHEX: {self.hex}")
 
     def mousePressEvent(self, event):
@@ -259,12 +307,10 @@ class PaletteRow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
-        # Title
         title_lbl = QLabel(title)
         title_lbl.setObjectName("SectionTitle")
         layout.addWidget(title_lbl)
 
-        # Colors container
         container = QFrame()
         container.setObjectName("PaletteBox")
         h_layout = QHBoxLayout()
@@ -272,7 +318,6 @@ class PaletteRow(QWidget):
         container.setLayout(h_layout)
 
         for c_data in colors:
-            # Vertical grouping: Swatch + Hex
             v_box = QWidget()
             v_layout = QVBoxLayout()
             v_layout.setContentsMargins(0,0,0,0)
@@ -281,11 +326,6 @@ class PaletteRow(QWidget):
 
             rgb = c_data['rgb']
             swatch = ColorSwatch(*rgb, size=40)
-            # Disable click on palette swatches? Or make them select the color?
-            # Requirement doesn't specify, but usually clicking sets it as main.
-            # I'll make them clickable to set main color.
-            # I need a way to bubble this up.
-            # For now, let's just display.
 
             hex_lbl = QLabel(c_data['hex'])
             hex_lbl.setObjectName("HexLabel")
@@ -304,9 +344,16 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Null Color Picker")
         self.resize(500, 700)
 
+        # Set App Icon
+        self.setWindowIcon(create_app_icon())
+
         # Logic
-        self.history = [] # List of (r,g,b)
-        self.current_color = (255, 255, 255) # Default white
+        self.history = []
+        self.current_color = (255, 255, 255)
+        self.app_settings = {
+            "sample_size": 1,
+            "always_on_top": False
+        }
 
         # UI Setup
         self.setup_ui()
@@ -324,12 +371,26 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central_widget)
         main_layout.setSpacing(20)
 
-        # 1. Top Bar: Eyedropper + Big Preview
+        # 1. Top Bar: Settings + Eyedropper + Preview
         top_bar = QHBoxLayout()
 
+        # Settings Button
+        self.settings_btn = QPushButton()
+        self.settings_btn.setIcon(QIcon.fromTheme("preferences-system")) # Fallback
+        # Since themes might not work, let's put text or a unicode char if icon fails,
+        # but we have a stylesheet for IconButton.
+        self.settings_btn.setText("⚙")
+        self.settings_btn.setObjectName("IconButton")
+        self.settings_btn.setFixedSize(40, 40)
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.clicked.connect(self.open_settings)
+        top_bar.addWidget(self.settings_btn)
+
         # Eyedropper Button
-        self.eyedropper_btn = QPushButton("Eyedropper")
-        self.eyedropper_btn.setIcon(QIcon.fromTheme("color-picker")) # Fallback
+        self.eyedropper_btn = QPushButton(" Eyedropper")
+        # self.eyedropper_btn.setIcon(QIcon.fromTheme("color-picker"))
+        # Use our custom icon?
+        self.eyedropper_btn.setIcon(create_app_icon())
         self.eyedropper_btn.setObjectName("EyedropperButton")
         self.eyedropper_btn.setCursor(Qt.PointingHandCursor)
         self.eyedropper_btn.clicked.connect(self.activate_eyedropper)
@@ -337,15 +398,16 @@ class MainWindow(QMainWindow):
 
         # Selected Color Info
         self.selected_preview = QFrame()
+        self.selected_preview.setObjectName("PreviewFrame")
         self.selected_preview.setFixedSize(80, 80)
-        self.selected_preview.setStyleSheet("background-color: #FFFFFF; border: 1px solid #000; border-radius: 10px;")
+        self.selected_preview.setStyleSheet(f"background-color: #FFFFFF; border: 1px solid #333; border-radius: 10px;")
         top_bar.addWidget(self.selected_preview)
 
         self.color_info_layout = QVBoxLayout()
         self.hex_label = QLabel("#FFFFFF")
-        self.hex_label.setStyleSheet("font-size: 24px; font-weight: bold; font-family: monospace;")
+        self.hex_label.setStyleSheet("font-size: 24px; font-weight: bold; font-family: monospace; color: #ffffff;")
         self.rgb_label = QLabel("rgb(255, 255, 255)")
-        self.rgb_label.setStyleSheet("font-size: 14px; color: #666;")
+        self.rgb_label.setStyleSheet("font-size: 14px; color: #aaaaaa;")
 
         self.color_info_layout.addWidget(self.hex_label)
         self.color_info_layout.addWidget(self.rgb_label)
@@ -377,36 +439,43 @@ class MainWindow(QMainWindow):
 
         main_layout.addWidget(scroll)
 
+    def open_settings(self):
+        dlg = SettingsDialog(self, self.app_settings)
+        dlg.settings_changed.connect(self.apply_settings)
+        dlg.exec()
+
+    def apply_settings(self, settings):
+        self.app_settings = settings
+
+        # Apply Always on Top
+        if settings["always_on_top"]:
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        else:
+            self.setWindowFlag(Qt.WindowStaysOnTopHint, False)
+        self.show() # Need to show again after changing flags
+
+        # Apply Sample Size
+        self.magnifier.set_sample_size(settings["sample_size"])
+
     def activate_eyedropper(self):
-        # Minimize main window? Or just show overlay?
-        # Prompt doesn't say to minimize.
         self.magnifier.start()
 
     def add_color(self, color):
-        # Add to history
         if len(self.history) >= 15:
             self.history.pop(0)
         self.history.append(color)
 
-        # Update UI
         self.update_history_ui()
         self.update_ui_with_color(color)
 
-        # Restore window if we hid it (we didn't)
         self.raise_()
         self.activateWindow()
 
     def update_history_ui(self):
-        # Clear existing
         while self.history_container.count():
             child = self.history_container.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
-
-        # Re-populate (Show newest first? Prompt says "FIFO logic: delete oldest once list > 15".
-        # Typically history shows newest. I'll show newest on left or right?
-        # "Clicking a color rewrites the selected color".
-        # I'll show order of addition.
 
         for c in reversed(self.history):
             swatch = ColorSwatch(*c, size=30, is_history=True)
@@ -418,35 +487,28 @@ class MainWindow(QMainWindow):
         self.current_color = color
         hex_val = rgb_to_hex(r, g, b)
 
-        # Update Main Preview
-        self.selected_preview.setStyleSheet(f"background-color: {hex_val}; border: 1px solid #ccc; border-radius: 10px;")
+        self.selected_preview.setStyleSheet(f"background-color: {hex_val}; border: 1px solid #333; border-radius: 10px;")
         self.hex_label.setText(hex_val)
         self.rgb_label.setText(f"rgb({r}, {g}, {b})")
 
-        # Generate Palettes
         self.generate_and_show_palettes(r, g, b)
 
     def generate_and_show_palettes(self, r, g, b):
-        # Clear existing palettes
         while self.palette_layout.count():
             child = self.palette_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
         palettes = generate_palettes(r, g, b)
-
-        # Order: Monochromatic, Analogous, Complementary, Split-Comp, Triadic, Tetradic
         order = ["Monochromatic", "Analogous", "Complementary", "Split Complementary", "Triadic", "Tetradic"]
 
         for name in order:
             if name in palettes:
                 row = PaletteRow(name, palettes[name])
                 self.palette_layout.addWidget(row)
-
         self.palette_layout.addStretch()
 
 if __name__ == "__main__":
-    # Handle high DPI
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLESHEET)
