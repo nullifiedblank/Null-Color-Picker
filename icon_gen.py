@@ -1,5 +1,5 @@
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPainterPath
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QPoint
 
 def create_app_icon():
     """
