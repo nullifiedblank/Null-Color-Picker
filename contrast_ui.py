@@ -1,19 +1,19 @@
-from PySide6.QtWidgets import (QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QFrame, QGridLayout, QApplication)
-from PySide6.QtCore import Qt, Signal, QTimer
-from PySide6.QtGui import QColor, QIcon, QClipboard
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QPushButton, QFrame, QGridLayout)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 
-from contrast_utils import calculate_contrast, suggest_passing_color, rgb_to_hex, hex_to_rgb
+from contrast_utils import calculate_contrast, suggest_passing_color, hex_to_rgb
 from widgets import FlashFrame, CopyLabel
 
-class ContrastCheckerDialog(QDialog):
+class ContrastCheckerWidget(QWidget):
+    """
+    Widget version of the contrast checker for embedding in tabs.
+    """
     request_color_pick = Signal(bool) # True for FG, False for BG
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Contrast Checker")
-        self.resize(500, 600)
-        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint) # Standard Dialog
 
         # Colors
         self.fg_color = "#FFFFFF"
@@ -25,6 +25,7 @@ class ContrastCheckerDialog(QDialog):
     def setup_ui(self):
         layout = QVBoxLayout()
         layout.setSpacing(20)
+        layout.setAlignment(Qt.AlignTop) # Align top for widget use
         self.setLayout(layout)
 
         # --- 1. Inputs Area ---
@@ -99,6 +100,8 @@ class ContrastCheckerDialog(QDialog):
         suggestion_layout.addStretch()
 
         layout.addWidget(self.suggestion_frame)
+
+        # Add stretch to push everything up
         layout.addStretch()
 
     def create_color_input(self, title, default_hex, is_fg):
@@ -122,7 +125,6 @@ class ContrastCheckerDialog(QDialog):
 
         # Picker Btn
         pick_btn = QPushButton()
-        pick_btn.setIcon(QIcon.fromTheme("color-picker"))
         pick_btn.setText("🖊")
         pick_btn.setFixedSize(30, 30)
         pick_btn.clicked.connect(lambda: self.request_color_pick.emit(is_fg))
@@ -135,9 +137,9 @@ class ContrastCheckerDialog(QDialog):
         swatch_row.setSpacing(5)
         presets = ["#FFFFFF", "#000000", "#808080", "#404040"]
         for p in presets:
-            s = FlashFrame(p)
+            # Swatches here are interactive (clickable)
+            s = FlashFrame(p, interactive=True)
             s.setFixedSize(20, 20)
-            s.setCursor(Qt.PointingHandCursor)
             s.clicked.connect(lambda c=p: self.set_color(c, is_fg))
             swatch_row.addWidget(s)
         swatch_row.addStretch()
@@ -212,6 +214,3 @@ class ContrastCheckerDialog(QDialog):
 
     def receive_picked_color(self, hex_val, is_fg):
         self.set_color(hex_val, is_fg)
-        # Bring dialog to front
-        self.raise_()
-        self.activateWindow()

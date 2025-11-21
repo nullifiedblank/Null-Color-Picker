@@ -21,6 +21,29 @@ def hls_to_rgb_wrapper(h, l, s):
 def rgb_to_hex(r, g, b):
     return f"#{r:02X}{g:02X}{b:02X}"
 
+def rgb_to_cmyk(r, g, b):
+    """
+    Convert RGB to CMYK (0-100).
+    """
+    if (r, g, b) == (0, 0, 0):
+        return 0, 0, 0, 100
+
+    # rgb [0,1]
+    r = r / 255.0
+    g = g / 255.0
+    b = b / 255.0
+
+    k = 1 - max(r, g, b)
+    c = (1 - r - k) / (1 - k)
+    m = (1 - g - k) / (1 - k)
+    y = (1 - b - k) / (1 - k)
+
+    return (round(c * 100), round(m * 100), round(y * 100), round(k * 100))
+
+def rgb_to_hsl_string(r, g, b):
+    h, l, s = rgb_to_hls_wrapper(r, g, b)
+    return f"hsl({round(h*360)}, {round(s*100)}%, {round(l*100)}%)"
+
 def rotate_hue(h, degrees):
     """
     Rotate hue by degrees.
