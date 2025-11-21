@@ -181,12 +181,10 @@ class MagnifierWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        # Full screen transparent overlay to capture clicks everywhere
+        # Reverting to 200x200 following window
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        # Initial size will be set by showFullScreen or manually covering screen
-        # But on some OS showing full screen might interfere.
-        # Best to set geometry to screen geometry.
+        self.setAttribute(Qt.WA_TranslucentBackground, False) # Standard window
+        self.setFixedSize(200, 200)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_view)
@@ -211,13 +209,15 @@ class MagnifierWindow(QWidget):
 
     def start(self):
         self.is_active = True
-        # Cover all screens? For now primary.
-        screen_geo = QApplication.primaryScreen().geometry()
-        self.setGeometry(screen_geo)
-
         self.setMouseTracking(True)
-        self.timer.start(16) # ~60 FPS
+
+        # Ensure window is ready to grab
         self.show()
+        self.activateWindow()
+        self.raise_()
+        self.setFocus()
+
+        self.timer.start(16) # ~60 FPS
         self.grabKeyboard()
         self.grabMouse()
 
@@ -233,58 +233,51 @@ class MagnifierWindow(QWidget):
             return
 
         pos = QCursor.pos()
-        # No move(), we are full screen
+
+        # Follow cursor with offset
+        self.move(pos.x() + 30, pos.y() + 30)
 
         grab_x = pos.x() - 10
         grab_y = pos.y() - 10
 
-        # Grab screen content around cursor
         self.pixmap = ScreenSampler.grab_area(grab_x, grab_y, 20, 20)
 
-        # Get raw sampled color
-        raw_color = ScreenSampler.get_average_color(pos.x(), pos.y(), self.sample_size)
+        self.current_color = ScreenSampler.get_average_color(pos.x(), pos.y(), self.sample_size)
 
         # Apply ICC if managed
         if self.color_managed and self.icc_path:
             self.current_color = convert_to_srgb(*raw_color, self.icc_path)
-        else:
-            self.current_color = raw_color
 
         self.repaint()
 
     def paintEvent(self, event):
-        if not self.is_active: return
-
         painter = QPainter(self)
 
-        # Calculate position to draw the magnifier box
-        # We want it offset from cursor
-        cursor_pos = self.mapFromGlobal(QCursor.pos())
-        box_x = cursor_pos.x() + 30
-        box_y = cursor_pos.y() + 30
-
         # Draw zoomed image
-        # Target rect is 200x200
-        target_rect = QRect(box_x, box_y, 200, 200)
-
-        # Fill background of box first to ensure opacity
-        painter.fillRect(target_rect, Qt.black)
-
         if hasattr(self, 'pixmap') and not self.pixmap.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
+            target_rect = self.rect()
             painter.drawPixmap(target_rect, self.pixmap)
 
-        # Draw Crosshair / Sample Box inside the magnified area
-        # Center of the 200x200 box is (box_x + 100, box_y + 100)
-        center_x = box_x + 100
-        center_y = box_y + 100
+        # Draw Crosshair / Sample Box
+        # Align to grid: 200x200 window, 10x zoom.
+        # Center pixel (or sample area) should be visually centered.
+        # Pixel 0 starts at 0. Pixel 10 starts at 100.
+        # Box should start at width // 2 (100).
+
+        box_x = self.width() // 2
+        box_y = self.height() // 2
 
         pixel_visual_size = self.zoom_level
         sample_visual_size = self.sample_size * pixel_visual_size
 
+        # Center logic:
+        # If sample size is 1 (10px visual), we want it at 100,100.
+        # If sample size is 3 (30px visual), we want it at 90,90 (so 100,100 is center of middle pixel).
+
         offset_pixels = self.sample_size // 2
-        draw_x = center_x - (offset_pixels * self.zoom_level)
-        draw_y = center_y - (offset_pixels * self.zoom_level)
+        draw_x = box_x - (offset_pixels * self.zoom_level)
+        draw_y = box_y - (offset_pixels * self.zoom_level)
 
         # Contrast border (White)
         painter.setPen(QPen(QColor(255, 255, 255), 1))
@@ -294,18 +287,16 @@ class MagnifierWindow(QWidget):
         painter.setPen(QPen(QColor(0, 0, 0), 1))
         painter.drawRect(draw_x, draw_y, sample_visual_size, sample_visual_size)
 
-        # Outer border of magnifier
+        # Outer border
         painter.setPen(QPen(QColor(0, 0, 0), 4))
-        painter.drawRect(target_rect)
+        painter.drawRect(0, 0, self.width(), self.height())
 
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # Confirm selection
             self.color_selected.emit(self.current_color)
             self.stop()
         elif event.button() == Qt.RightButton:
-            # Cancel
             self.stop()
 
     def keyPressEvent(self, event):
@@ -319,8 +310,6 @@ class PaletteRow(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2) # Reduced spacing
         self.setLayout(layout)
-
-        # Removed external title label as requested
 
         container = QFrame()
         container.setObjectName("PaletteBox")
@@ -371,7 +360,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Null Color Picker")
         # Increased width for better layout
-        self.setFixedWidth(720)
+        self.setFixedWidth(800)
 
         # Set App Icon
         self.setWindowIcon(load_icon())

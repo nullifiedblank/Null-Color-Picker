@@ -262,4 +262,9 @@ QLabel#SuggestionLabel {
     color: #aaaaaa;
     font-style: italic;
 }
+
+/* Tab Center Alignment */
+QTabWidget::tab-bar {
+    alignment: center;
+}
 """
