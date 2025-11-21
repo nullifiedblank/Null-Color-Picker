@@ -14,7 +14,7 @@ from styles import STYLESHEET
 from color_logic import generate_palettes, rgb_to_hex, rgb_to_cmyk, rgb_to_hsl_string
 from icon_gen import create_app_icon, create_gear_icon
 from widgets import ToggleSwitch, CopyLabel, FlashFrame, PaletteItem
-from contrast_ui import ContrastCheckerDialog # Restored Dialog import
+from contrast_ui import ContrastCheckerDialog
 from icc_utils import get_system_monitor_profile_path, convert_to_srgb
 
 # --- Constants ---
@@ -32,14 +32,8 @@ def load_icon():
 IS_WINDOWS = platform.system() == 'Windows'
 if IS_WINDOWS:
     import ctypes
-    from ctypes import windll, c_int, c_void_p, byref
-    user32 = windll.user32
-    gdi32 = windll.gdi32
-
-    # Define Windows types/constants if needed
-    HDC = c_void_p
-    HBITMAP = c_void_p
-    SRCCOPY = 0x00CC0020
+    user32 = ctypes.windll.user32
+    gdi32 = ctypes.windll.gdi32
 
 # --- Screen Sampler ---
 
@@ -50,7 +44,6 @@ class ScreenSampler:
 
     @staticmethod
     def get_pixel_color(x, y):
-        # This is used for single pixel grab
         if IS_WINDOWS:
             try:
                 hdc = user32.GetDC(0)
@@ -75,49 +68,10 @@ class ScreenSampler:
 
     @staticmethod
     def grab_area(x, y, width, height):
-        """
-        Captures screen area. Uses GDI on Windows for speed/reliability, Qt elsewhere.
-        """
-        if IS_WINDOWS:
-            try:
-                return ScreenSampler.grab_area_win(x, y, width, height)
-            except Exception as e:
-                # Fallback
-                pass
+        # Qt grabWindow(0) usually works fine even with overlays if the overlay is transparent
+        # or if we grab strictly under the mouse where we are NOT drawing.
         screen = QApplication.primaryScreen()
         return screen.grabWindow(0, x, y, width, height)
-
-    @staticmethod
-    def grab_area_win(x, y, w, h):
-        # Create DC
-        hwnd = 0 # Desktop
-        hwndDC = user32.GetDC(hwnd)
-        mfcDC = gdi32.CreateCompatibleDC(hwndDC)
-        saveDC = gdi32.CreateCompatibleDC(hwndDC)
-
-        # Create Bitmap
-        bitMap = gdi32.CreateCompatibleBitmap(hwndDC, w, h)
-        gdi32.SelectObject(saveDC, bitMap)
-
-        # Copy
-        # BitBlt(HDC hdcDest, int nXDest, int nYDest, int nWidth, int nHeight, HDC hdcSrc, int nXSrc, int nYSrc, DWORD dwRop)
-        gdi32.BitBlt(saveDC, 0, 0, w, h, hwndDC, x, y, SRCCOPY)
-
-        # Convert to QPixmap
-        # Need to get bits.
-        # Simpler way: Qt's grabWindow(0) usually works, but if it's failing due to overlay:
-        # Using QScreen on Windows essentially calls BitBlt internally but might check bounds vs our overlay.
-
-        # Since we are doing a complex ctypes implementation for bitmap conversion which is error prone in snippet:
-        # We will stick to QScreen for simplicity but ensure we call it correctly.
-        # BUT if `grabWindow` is capturing the overlay, we need to hide overlay or be careful.
-        # Our Overlay is transparent. If we grab the region, we should see through it unless we paint on it.
-        # We paint on it.
-        # BUT we paint offset from cursor. We grab AT cursor. They shouldn't overlap.
-
-        # Let's raise exception to fallback to Qt for now unless I implement full bitmap conversion which needs heavy ctypes structure definitions (BITMAPINFO etc).
-        # Given the constraint, I will rely on the OFFSET strategy to avoid self-capture.
-        raise NotImplementedError("Windows BitBlt conversion not fully implemented, using Qt fallback which should work with offset.")
 
     @staticmethod
     def get_average_color(x, y, size):
@@ -232,6 +186,8 @@ class MagnifierOverlay(QWidget):
 
     def __init__(self):
         super().__init__()
+        # Use Tool + Frameless + StayOnTop.
+        # TranslucentBackground allows drawing on top of desktop.
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_NoSystemBackground)
@@ -260,7 +216,7 @@ class MagnifierOverlay(QWidget):
     def start(self):
         self.is_active = True
 
-        # Cover all screens
+        # Cover all screens geometry
         total_rect = QRect()
         for screen in QApplication.screens():
             total_rect = total_rect.united(screen.geometry())
@@ -271,9 +227,10 @@ class MagnifierOverlay(QWidget):
         self.raise_()
         self.activateWindow()
 
+        # Start update loop
         self.timer.start(16) # ~60 FPS
 
-        # Grab input
+        # Grab input to prevent click-through
         self.grabKeyboard()
         self.grabMouse()
 
@@ -289,15 +246,11 @@ class MagnifierOverlay(QWidget):
 
         pos = QCursor.pos()
 
-        # Grab pixels around cursor
+        # Grab pixels around cursor (20x20 for 200x200 magnifier)
+        # We grab at true cursor pos
         grab_x = pos.x() - 10
         grab_y = pos.y() - 10
 
-        # Important: This grab might see the overlay if we draw on it?
-        # But the overlay is transparent.
-        # We draw the box offset by 30px.
-        # The grab area is at the cursor.
-        # They do not overlap.
         self.pixmap = ScreenSampler.grab_area(grab_x, grab_y, 20, 20)
 
         # Get raw sampled color
@@ -317,10 +270,11 @@ class MagnifierOverlay(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False) # Pixel art style
 
+        # Calculate position to draw the magnifier box
+        # We draw it offset from cursor so we don't block the grab area
         pos = QCursor.pos()
         local_pos = self.mapFromGlobal(pos)
 
-        # Offset magnifier box
         box_x = local_pos.x() + 30
         box_y = local_pos.y() + 30
 
@@ -328,19 +282,20 @@ class MagnifierOverlay(QWidget):
         target_rect = QRect(box_x, box_y, 200, 200)
         painter.fillRect(target_rect, Qt.black)
 
-        # Draw Pixmap
+        # Draw Pixmap (Zoomed)
         if hasattr(self, 'pixmap') and not self.pixmap.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
             painter.drawPixmap(target_rect, self.pixmap)
 
-        # Draw Crosshair
-        # Center of 200x200 box
+        # Draw Crosshair / Sample Box inside the magnified area
+        # Center of the 200x200 box is (box_x + 100, box_y + 100)
         center_x = box_x + 100
         center_y = box_y + 100
 
         pixel_vis = self.zoom_level
         sample_vis = self.sample_size * pixel_vis
 
+        # Align offset
         offset_pixels = self.sample_size // 2
         draw_x = center_x - (offset_pixels * self.zoom_level)
         draw_y = center_y - (offset_pixels * self.zoom_level)
@@ -353,7 +308,7 @@ class MagnifierOverlay(QWidget):
         painter.setPen(QPen(QColor(0, 0, 0), 1))
         painter.drawRect(draw_x, draw_y, sample_vis, sample_vis)
 
-        # Outer Border
+        # Outer Border of Magnifier
         painter.setPen(QPen(QColor(0, 0, 0), 4))
         painter.drawRect(target_rect)
 
@@ -368,51 +323,6 @@ class MagnifierOverlay(QWidget):
         if event.key() == Qt.Key_Escape:
             self.stop()
 
-class PaletteRow(QWidget):
-    def __init__(self, title, colors):
-        super().__init__()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        self.setLayout(layout)
-
-        container = QFrame()
-        container.setObjectName("PaletteBox")
-        container_layout = QVBoxLayout()
-        container_layout.setContentsMargins(10, 10, 10, 10)
-        container_layout.setSpacing(5)
-        container.setLayout(container_layout)
-
-        inner_title = QLabel(title)
-        inner_title.setObjectName("PaletteTitle")
-        inner_title.setAlignment(Qt.AlignCenter)
-        container_layout.addWidget(inner_title)
-
-        items_layout = QHBoxLayout()
-        items_layout.setSpacing(0)
-        items_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.addLayout(items_layout)
-
-        items_layout.addStretch(1)
-        for i, c_data in enumerate(colors):
-            if i > 0:
-                vline = QFrame()
-                vline.setFrameShape(QFrame.VLine)
-                vline.setFrameShadow(QFrame.Sunken)
-                vline.setFixedWidth(1)
-                vline.setStyleSheet("background-color: #333333;")
-                vline.setFixedHeight(40)
-                items_layout.addSpacing(10)
-                items_layout.addWidget(vline)
-                items_layout.addSpacing(10)
-            item = PaletteItem(*c_data['rgb'], parent_settings) # Need to pass settings dynamically?
-            # Actually PaletteRow is created in generate_theory_palettes which has access to settings?
-            # No, we need to pass it. We'll handle this in MainWindow.
-            items_layout.addWidget(item)
-        items_layout.addStretch(1)
-        layout.addWidget(container)
-
-# Need to update PaletteRow signature to accept settings or handle it
 class PaletteRow(QWidget):
     def __init__(self, title, colors, settings):
         super().__init__()
@@ -469,7 +379,7 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
 
-        # Use the new Overlay Magnifier
+        # Switch to Overlay Magnifier
         self.magnifier = MagnifierOverlay()
         self.magnifier.set_sample_size(self.app_settings["sample_size"])
         self.magnifier.set_color_managed(self.app_settings["color_managed"])
@@ -558,7 +468,6 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(theory_label)
 
         self.tabs = QTabWidget()
-        # Styling centered in STYLESHEET now
         self.tabs.setStyleSheet("""
             QTabWidget::pane { border: 1px solid #333; border-radius: 4px; }
             QTabBar::tab { background: #1e1e1e; color: #aaa; padding: 8px 12px; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px; }
