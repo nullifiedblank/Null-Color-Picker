@@ -177,17 +177,23 @@ class SettingsDialog(QDialog):
         super().closeEvent(event)
 
 class MagnifierWindow(QWidget):
-    color_selected = Signal(tuple)
+    color_selected = Signal(tuple) # r, g, b
 
     def __init__(self):
         super().__init__()
+        # Full screen transparent overlay to capture clicks everywhere
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedSize(200, 200)
+        # Initial size will be set by showFullScreen or manually covering screen
+        # But on some OS showing full screen might interfere.
+        # Best to set geometry to screen geometry.
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_view)
+
         self.current_color = (0, 0, 0)
-        self.sample_size = 1
+        self.sample_size = 1 # Default
+
         self.zoom_level = 10
         self.is_active = False
 
@@ -205,8 +211,12 @@ class MagnifierWindow(QWidget):
 
     def start(self):
         self.is_active = True
+        # Cover all screens? For now primary.
+        screen_geo = QApplication.primaryScreen().geometry()
+        self.setGeometry(screen_geo)
+
         self.setMouseTracking(True)
-        self.timer.start(16)
+        self.timer.start(16) # ~60 FPS
         self.show()
         self.grabKeyboard()
         self.grabMouse()
@@ -219,12 +229,16 @@ class MagnifierWindow(QWidget):
         self.hide()
 
     def update_view(self):
-        if not self.is_active: return
+        if not self.is_active:
+            return
+
         pos = QCursor.pos()
-        self.move(pos.x() + 30, pos.y() + 30)
+        # No move(), we are full screen
 
         grab_x = pos.x() - 10
         grab_y = pos.y() - 10
+
+        # Grab screen content around cursor
         self.pixmap = ScreenSampler.grab_area(grab_x, grab_y, 20, 20)
 
         # Get raw sampled color
@@ -239,64 +253,147 @@ class MagnifierWindow(QWidget):
         self.repaint()
 
     def paintEvent(self, event):
+        if not self.is_active: return
+
         painter = QPainter(self)
+
+        # Calculate position to draw the magnifier box
+        # We want it offset from cursor
+        cursor_pos = self.mapFromGlobal(QCursor.pos())
+        box_x = cursor_pos.x() + 30
+        box_y = cursor_pos.y() + 30
+
+        # Draw zoomed image
+        # Target rect is 200x200
+        target_rect = QRect(box_x, box_y, 200, 200)
+
+        # Fill background of box first to ensure opacity
+        painter.fillRect(target_rect, Qt.black)
+
         if hasattr(self, 'pixmap') and not self.pixmap.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
-            painter.drawPixmap(self.rect(), self.pixmap)
+            painter.drawPixmap(target_rect, self.pixmap)
 
-        box_x = self.width() // 2
-        box_y = self.height() // 2
+        # Draw Crosshair / Sample Box inside the magnified area
+        # Center of the 200x200 box is (box_x + 100, box_y + 100)
+        center_x = box_x + 100
+        center_y = box_y + 100
 
-        pixel_vis = self.zoom_level
-        sample_vis = self.sample_size * pixel_vis
+        pixel_visual_size = self.zoom_level
+        sample_visual_size = self.sample_size * pixel_visual_size
 
         offset_pixels = self.sample_size // 2
-        draw_x = box_x - (offset_pixels * self.zoom_level)
-        draw_y = box_y - (offset_pixels * self.zoom_level)
+        draw_x = center_x - (offset_pixels * self.zoom_level)
+        draw_y = center_y - (offset_pixels * self.zoom_level)
 
+        # Contrast border (White)
         painter.setPen(QPen(QColor(255, 255, 255), 1))
-        painter.drawRect(draw_x - 1, draw_y - 1, sample_vis + 2, sample_vis + 2)
+        painter.drawRect(draw_x - 1, draw_y - 1, sample_visual_size + 2, sample_visual_size + 2)
+
+        # Black border
         painter.setPen(QPen(QColor(0, 0, 0), 1))
-        painter.drawRect(draw_x, draw_y, sample_vis, sample_vis)
+        painter.drawRect(draw_x, draw_y, sample_visual_size, sample_visual_size)
+
+        # Outer border of magnifier
         painter.setPen(QPen(QColor(0, 0, 0), 4))
-        painter.drawRect(0, 0, self.width(), self.height())
+        painter.drawRect(target_rect)
+
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            # Confirm selection
             self.color_selected.emit(self.current_color)
             self.stop()
         elif event.button() == Qt.RightButton:
+            # Cancel
             self.stop()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Escape:
             self.stop()
 
+class PaletteRow(QWidget):
+    def __init__(self, title, colors):
+        super().__init__()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2) # Reduced spacing
+        self.setLayout(layout)
+
+        # Removed external title label as requested
+
+        container = QFrame()
+        container.setObjectName("PaletteBox")
+        container_layout = QVBoxLayout()
+        container_layout.setContentsMargins(10, 10, 10, 10)
+        container_layout.setSpacing(5)
+        container.setLayout(container_layout)
+
+        # Inner Title
+        inner_title = QLabel(title)
+        inner_title.setObjectName("PaletteTitle")
+        inner_title.setAlignment(Qt.AlignCenter)
+        container_layout.addWidget(inner_title)
+
+        # Items
+        items_layout = QHBoxLayout()
+        items_layout.setSpacing(0)
+        items_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.addLayout(items_layout)
+
+        # Distribute items evenly with stretch and vertical lines
+        items_layout.addStretch(1)
+        for i, c_data in enumerate(colors):
+            # Add Vertical Line Separator if not first item
+            if i > 0:
+                vline = QFrame()
+                vline.setFrameShape(QFrame.VLine)
+                vline.setFrameShadow(QFrame.Sunken)
+                vline.setFixedWidth(1)
+                vline.setStyleSheet("background-color: #333333;") # Faint gray
+                vline.setFixedHeight(40) # Height of color box approx
+
+                # Wrap in widget to center vertically if needed, or just add
+                # Add spacing around line
+                items_layout.addSpacing(10)
+                items_layout.addWidget(vline)
+                items_layout.addSpacing(10)
+
+            item = PaletteItem(*c_data['rgb'])
+            items_layout.addWidget(item)
+
+        items_layout.addStretch(1)
+
+        layout.addWidget(container)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Null Color Picker")
-        self.setFixedSize(900, 800) # Widened as requested
+        # Increased width for better layout
+        self.setFixedWidth(720)
+
+        # Set App Icon
         self.setWindowIcon(load_icon())
 
-        # Data
+        # Logic: Initialize History with Black and White
         self.history = [(0,0,0), (255,255,255)]
         self.current_color = (255, 255, 255)
         self.load_settings()
 
-        # UI
+        # UI Setup
         self.setup_ui()
 
-        # Components
+        # Magnifier
         self.magnifier = MagnifierWindow()
         self.magnifier.set_sample_size(self.app_settings["sample_size"])
         self.magnifier.set_color_managed(self.app_settings["color_managed"])
         self.magnifier.color_selected.connect(self.add_color)
 
-        self.contrast_dialog = None
+        self.contrast_dialog = None # Lazy load
 
-        # Init
-        self.update_ui_with_color(self.current_color)
+        # Initial State
+        self.update_ui_with_color((255, 255, 255))
 
     def load_settings(self):
         self.app_settings = {
@@ -316,31 +413,35 @@ class MainWindow(QMainWindow):
         except: pass
 
     def setup_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        main_layout = QVBoxLayout(central)
-        main_layout.setSpacing(10)
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(10) # Reduced spacing
         main_layout.setContentsMargins(10, 10, 10, 10)
 
-        # --- Top Bar ---
+        # 1. Top Bar: Settings + Contrast + Eyedropper + Preview
         top_bar = QHBoxLayout()
         top_bar.setSpacing(10)
 
-        # Left Buttons
+        # Settings Button
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(create_gear_icon())
         self.settings_btn.setObjectName("SettingsButton")
         self.settings_btn.setFixedSize(40, 40)
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
         self.settings_btn.clicked.connect(self.open_settings)
         top_bar.addWidget(self.settings_btn)
 
+        # Contrast Checker Button
         self.contrast_btn = QPushButton(" Contrast")
+        # Use simple unicode or standard icon if available
         self.contrast_btn.setIcon(QIcon.fromTheme("applications-graphics"))
-        self.contrast_btn.setObjectName("EyedropperButton")
+        self.contrast_btn.setObjectName("EyedropperButton") # Reuse style
         self.contrast_btn.setCursor(Qt.PointingHandCursor)
         self.contrast_btn.clicked.connect(self.open_contrast_checker)
         top_bar.addWidget(self.contrast_btn)
 
+        # Eyedropper Button
         self.eyedropper_btn = QPushButton(" Eyedropper")
         self.eyedropper_btn.setIcon(load_icon())
         self.eyedropper_btn.setObjectName("EyedropperButton")
@@ -348,25 +449,28 @@ class MainWindow(QMainWindow):
         self.eyedropper_btn.clicked.connect(self.activate_eyedropper)
         top_bar.addWidget(self.eyedropper_btn)
 
+        # Stretch to push text to right
         top_bar.addStretch()
 
-        # Right Color Systems Info (Pinned)
+        # Color Info (Right Aligned)
         self.color_info_layout = QVBoxLayout()
-        self.color_info_layout.setSpacing(2)
+        self.color_info_layout.setSpacing(0)
         self.color_info_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        # Labels will be populated dynamically in update_ui_with_color
+
+        # Labels added dynamically
 
         top_bar.addLayout(self.color_info_layout)
 
-        # Preview Box
-        self.preview_box = QFrame()
-        self.preview_box.setObjectName("PreviewFrame")
-        self.preview_box.setFixedSize(70, 70)
-        top_bar.addWidget(self.preview_box)
+        # Selected Color Preview (Right most)
+        self.selected_preview = QFrame()
+        self.selected_preview.setObjectName("PreviewFrame")
+        self.selected_preview.setFixedSize(70, 70)
+        self.selected_preview.setStyleSheet(f"background-color: #FFFFFF; border: 1px solid #333; border-radius: 10px;")
+        top_bar.addWidget(self.selected_preview)
 
         main_layout.addLayout(top_bar)
 
-        # --- History (Reverted to Horizontal) ---
+        # 2. History
         history_label = QLabel("History")
         history_label.setObjectName("SectionTitle")
         main_layout.addWidget(history_label)
@@ -376,7 +480,7 @@ class MainWindow(QMainWindow):
         self.history_container.setSpacing(5)
         main_layout.addLayout(self.history_container)
 
-        # --- Color Theory Tabs ---
+        # 3. Color Theory Tabs
         theory_label = QLabel("Color Theory")
         theory_label.setObjectName("SectionTitle")
         main_layout.addWidget(theory_label)
@@ -389,162 +493,16 @@ class MainWindow(QMainWindow):
         """)
         main_layout.addWidget(self.tabs)
 
-    def update_top_bar_info(self, r, g, b):
-        # Clear existing labels
-        while self.color_info_layout.count():
-            child = self.color_info_layout.takeAt(0)
-            if child.widget(): child.widget().deleteLater()
-
-        # Add requested systems
-        s = self.app_settings
-
-        def add_lbl(text):
-            lbl = CopyLabel(text)
-            lbl.setStyleSheet("font-size: 13px; font-family: monospace; color: #ffffff; padding: 2px 4px;")
-            lbl.setAlignment(Qt.AlignRight)
-            self.color_info_layout.addWidget(lbl)
-
-        # Hex (always bold/larger if present, or just standard)
-        if s.get("show_hex", True):
-            lbl = CopyLabel(rgb_to_hex(r, g, b))
-            lbl.setStyleSheet("font-size: 20px; font-weight: bold; font-family: monospace; color: #ffffff; padding: 2px 4px;")
-            lbl.setAlignment(Qt.AlignRight)
-            self.color_info_layout.addWidget(lbl)
-
-        if s.get("show_rgb", True): add_lbl(f"rgb({r}, {g}, {b})")
-        if s.get("show_hsl", True): add_lbl(rgb_to_hsl_string(r, g, b))
-        if s.get("show_cmyk", True): add_lbl("cmyk" + str(rgb_to_cmyk(r, g, b)))
-
-    def update_history_ui(self):
-        while self.history_container.count():
-            child = self.history_container.takeAt(0)
-            if child.widget(): child.widget().deleteLater()
-
-        # Display last 15 (or fewer) items
-        # self.history contains tuples
-        display_history = self.history[-15:] if len(self.history) > 15 else self.history
-
-        # Reverse for display? Usually history goes Left->Right (Old->New) or vice versa.
-        # Previous implementation was reversed.
-        for c in reversed(display_history):
-            hex_val = rgb_to_hex(*c)
-            swatch = FlashFrame(hex_val, is_history=True, interactive=True)
-            swatch.setFixedSize(35, 35)
-            swatch.clicked.connect(lambda col=c: self.update_ui_with_color(col))
-            swatch.setToolTip(f"RGB: {c}")
-            self.history_container.addWidget(swatch)
-
-    def update_theory_tabs(self, r, g, b):
-        # Store current tab index to restore it
-        current_idx = self.tabs.currentIndex()
-        self.tabs.clear()
-
-        palettes = generate_palettes(r, g, b)
-        # Order of tabs
-        order = ["Monochromatic", "Analogous", "Complementary", "Split Complementary", "Triadic", "Tetradic"]
-
-        for name in order:
-            if name in palettes:
-                # Create a scroll area for the tab content
-                scroll = QScrollArea()
-                scroll.setWidgetResizable(True)
-                content = QWidget()
-                content.setObjectName("PaletteContainer")
-                layout = QHBoxLayout(content) # Horizontal layout for palette items
-                layout.setSpacing(10)
-                layout.setContentsMargins(10, 20, 10, 20)
-
-                # Distribute items
-                layout.addStretch(1)
-                colors = palettes[name]
-                for i, c_data in enumerate(colors):
-                    # Add separator
-                    if i > 0:
-                        vline = QFrame()
-                        vline.setFrameShape(QFrame.VLine)
-                        vline.setFrameShadow(QFrame.Sunken)
-                        vline.setFixedWidth(1)
-                        vline.setStyleSheet("background-color: #333333;")
-                        vline.setFixedHeight(40)
-                        layout.addWidget(vline)
-
-                    # Pass settings for dynamic labels
-                    item = PaletteItem(*c_data['rgb'], self.app_settings)
-                    layout.addWidget(item)
-
-                layout.addStretch(1)
-                scroll.setWidget(content)
-                self.tabs.addTab(scroll, name)
-
-        if current_idx >= 0 and current_idx < self.tabs.count():
-            self.tabs.setCurrentIndex(current_idx)
-
-    def update_ui_with_color(self, color):
-        self.current_color = color
-        hex_val = rgb_to_hex(*color)
-
-        # Preview Box
-        self.preview_box.setStyleSheet(f"background-color: {hex_val}; border: 1px solid #333; border-radius: 8px;")
-
-        # Top Bar Info
-        self.update_top_bar_info(*color)
-
-        # History
-        self.update_history_ui()
-
-        # Theory Tabs
-        self.update_theory_tabs(*color)
-
-    def add_color(self, color):
-        new_color = tuple(color)
-        # FIFO logic: remove oldest if full
-        if len(self.history) >= 15:
-            self.history.pop(0)
-        self.history.append(new_color)
-
-        self.update_ui_with_color(new_color)
-        self.raise_()
-        self.activateWindow()
-
-    def activate_eyedropper(self):
-        try: self.magnifier.color_selected.disconnect(self.return_contrast_color)
-        except: pass
-        try: self.magnifier.color_selected.disconnect(self.add_color)
-        except: pass
-
-        self.magnifier.color_selected.connect(self.add_color)
-        self.magnifier.start()
-
-    def open_contrast_checker(self):
-        if not self.contrast_dialog:
-            self.contrast_dialog = ContrastCheckerDialog(self)
-            self.contrast_dialog.request_color_pick.connect(self.activate_contrast_picker)
-        self.contrast_dialog.show()
-        self.contrast_dialog.raise_()
-        self.contrast_dialog.activateWindow()
-
-    def activate_contrast_picker(self, is_fg):
-        try: self.magnifier.color_selected.disconnect(self.add_color)
-        except: pass
-
-        self.contrast_target_is_fg = is_fg
-        self.magnifier.color_selected.connect(self.return_contrast_color)
-        self.magnifier.start()
-
-    def return_contrast_color(self, color):
-        try: self.magnifier.color_selected.disconnect(self.return_contrast_color)
-        except: pass
-        self.magnifier.color_selected.connect(self.add_color)
-
-        hex_val = rgb_to_hex(*color)
-        if self.contrast_dialog:
-            self.contrast_dialog.receive_picked_color(hex_val, self.contrast_target_is_fg)
+        # Add stretch at bottom to allow shrinking
+        main_layout.addStretch()
 
     def open_settings(self):
         dlg = SettingsDialog(self, self.app_settings)
         dlg.settings_changed.connect(self.apply_settings)
+
         btn_pos = self.settings_btn.mapToGlobal(QPoint(0, self.settings_btn.height()))
         dlg.move(btn_pos)
+
         dlg.exec()
 
     def apply_settings(self, settings):
@@ -566,6 +524,138 @@ class MainWindow(QMainWindow):
         self.magnifier.set_color_managed(self.app_settings["color_managed"])
 
         self.update_ui_with_color(self.current_color)
+
+    def open_contrast_checker(self):
+        if not self.contrast_dialog:
+            self.contrast_dialog = ContrastCheckerDialog(self)
+            self.contrast_dialog.request_color_pick.connect(self.activate_contrast_picker)
+        self.contrast_dialog.show()
+        self.contrast_dialog.raise_()
+        self.contrast_dialog.activateWindow()
+
+    def activate_eyedropper(self):
+        try: self.magnifier.color_selected.disconnect(self.return_contrast_color)
+        except: pass
+        try: self.magnifier.color_selected.disconnect(self.add_color)
+        except: pass
+
+        self.magnifier.color_selected.connect(self.add_color)
+        self.magnifier.start()
+
+    def activate_contrast_picker(self, is_fg):
+        try: self.magnifier.color_selected.disconnect(self.add_color)
+        except: pass
+
+        self.contrast_target_is_fg = is_fg
+        self.magnifier.color_selected.connect(self.return_contrast_color)
+        self.magnifier.start()
+
+    def return_contrast_color(self, color):
+        try: self.magnifier.color_selected.disconnect(self.return_contrast_color)
+        except: pass
+        self.magnifier.color_selected.connect(self.add_color)
+
+        hex_val = rgb_to_hex(*color)
+        if self.contrast_dialog:
+            self.contrast_dialog.receive_picked_color(hex_val, self.contrast_target_is_fg)
+
+    def add_color(self, color):
+        if len(self.history) >= 15:
+            self.history.pop(0)
+        self.history.append(tuple(color))
+
+        self.update_ui_with_color(tuple(color))
+        self.raise_()
+        self.activateWindow()
+
+    def update_history_ui(self):
+        while self.history_container.count():
+            child = self.history_container.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+
+        display_history = self.history[-15:] if len(self.history) > 15 else self.history
+
+        for c in reversed(display_history):
+            hex_val = rgb_to_hex(*c)
+            swatch = FlashFrame(hex_val, is_history=True, interactive=True)
+            swatch.setFixedSize(35, 35)
+            swatch.clicked.connect(lambda col=c: self.update_ui_with_color(col))
+            swatch.setToolTip(f"RGB: {c}")
+            self.history_container.addWidget(swatch)
+
+    def update_ui_with_color(self, color):
+        r, g, b = color
+        self.current_color = color
+        hex_val = rgb_to_hex(r, g, b)
+
+        self.selected_preview.setStyleSheet(f"background-color: {hex_val}; border: 1px solid #333; border-radius: 10px;")
+
+        # Update Top Bar Info
+        while self.color_info_layout.count():
+            child = self.color_info_layout.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+
+        s = self.app_settings
+        def add_lbl(text):
+            lbl = CopyLabel(text)
+            lbl.setStyleSheet("font-size: 13px; font-family: monospace; color: #ffffff; padding: 2px 4px;")
+            lbl.setAlignment(Qt.AlignRight)
+            self.color_info_layout.addWidget(lbl)
+
+        if s.get("show_hex", True):
+            lbl = CopyLabel(rgb_to_hex(r, g, b))
+            lbl.setStyleSheet("font-size: 20px; font-weight: bold; font-family: monospace; color: #ffffff; padding: 2px 4px;")
+            lbl.setAlignment(Qt.AlignRight)
+            self.color_info_layout.addWidget(lbl)
+
+        if s.get("show_rgb", True): add_lbl(f"rgb({r}, {g}, {b})")
+        if s.get("show_hsl", True): add_lbl(rgb_to_hsl_string(r, g, b))
+        if s.get("show_cmyk", True): add_lbl("cmyk" + str(rgb_to_cmyk(r, g, b)))
+
+        self.update_history_ui()
+        self.update_theory_tabs(r, g, b)
+
+        # Dynamic Resizing
+        QTimer.singleShot(10, self.adjustSize)
+
+    def update_theory_tabs(self, r, g, b):
+        current_idx = self.tabs.currentIndex()
+        self.tabs.clear()
+
+        palettes = generate_palettes(r, g, b)
+        order = ["Monochromatic", "Analogous", "Complementary", "Split Complementary", "Triadic", "Tetradic"]
+
+        for name in order:
+            if name in palettes:
+                scroll = QScrollArea()
+                scroll.setWidgetResizable(True)
+                content = QWidget()
+                content.setObjectName("PaletteContainer")
+                layout = QHBoxLayout(content)
+                layout.setSpacing(10)
+                layout.setContentsMargins(10, 20, 10, 20)
+
+                layout.addStretch(1)
+                colors = palettes[name]
+                for i, c_data in enumerate(colors):
+                    if i > 0:
+                        vline = QFrame()
+                        vline.setFrameShape(QFrame.VLine)
+                        vline.setFrameShadow(QFrame.Sunken)
+                        vline.setFixedWidth(1)
+                        vline.setStyleSheet("background-color: #333333;")
+                        vline.setFixedHeight(40)
+                        layout.addWidget(vline)
+
+                    item = PaletteItem(*c_data['rgb'], self.app_settings)
+                    layout.addWidget(item)
+
+                layout.addStretch(1)
+                scroll.setWidget(content)
+                self.tabs.addTab(scroll, name)
+
+        if current_idx >= 0 and current_idx < self.tabs.count():
+            self.tabs.setCurrentIndex(current_idx)
 
 if __name__ == "__main__":
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"

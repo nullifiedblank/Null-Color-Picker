@@ -116,7 +116,7 @@ QFrame#PaletteBox {
 }
 
 QLabel#CodeLabel {
-    font-family: monospace;
+    font-family: "Consolas", "Monaco", "Menlo", "Courier New", monospace;
     font-size: 11px;
     color: #aaaaaa;
     padding: 5px 8px; /* Default padding */
