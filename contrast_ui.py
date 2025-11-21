@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+from PySide6.QtWidgets import (QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QFrame, QGridLayout)
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
@@ -6,14 +6,17 @@ from PySide6.QtGui import QIcon
 from contrast_utils import calculate_contrast, suggest_passing_color, hex_to_rgb
 from widgets import FlashFrame, CopyLabel
 
-class ContrastCheckerWidget(QWidget):
+class ContrastCheckerDialog(QDialog):
     """
-    Widget version of the contrast checker for embedding in tabs.
+    Modal dialog for Contrast Checking.
     """
     request_color_pick = Signal(bool) # True for FG, False for BG
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowTitle("Contrast Checker")
+        self.resize(500, 600)
+        self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
 
         # Colors
         self.fg_color = "#FFFFFF"
@@ -25,7 +28,6 @@ class ContrastCheckerWidget(QWidget):
     def setup_ui(self):
         layout = QVBoxLayout()
         layout.setSpacing(20)
-        layout.setAlignment(Qt.AlignTop) # Align top for widget use
         self.setLayout(layout)
 
         # --- 1. Inputs Area ---
@@ -100,8 +102,6 @@ class ContrastCheckerWidget(QWidget):
         suggestion_layout.addStretch()
 
         layout.addWidget(self.suggestion_frame)
-
-        # Add stretch to push everything up
         layout.addStretch()
 
     def create_color_input(self, title, default_hex, is_fg):
@@ -137,7 +137,6 @@ class ContrastCheckerWidget(QWidget):
         swatch_row.setSpacing(5)
         presets = ["#FFFFFF", "#000000", "#808080", "#404040"]
         for p in presets:
-            # Swatches here are interactive (clickable)
             s = FlashFrame(p, interactive=True)
             s.setFixedSize(20, 20)
             s.clicked.connect(lambda c=p: self.set_color(c, is_fg))
@@ -154,7 +153,6 @@ class ContrastCheckerWidget(QWidget):
         return lbl
 
     def set_color(self, hex_val, is_fg):
-        # Normalize
         if not hex_val.startswith('#'): hex_val = '#' + hex_val
         hex_val = hex_val.upper()
 
@@ -168,10 +166,9 @@ class ContrastCheckerWidget(QWidget):
         self.update_results()
 
     def on_hex_changed(self, text, is_fg):
-        # Basic validation
         if len(text) == 7 and text.startswith('#'):
             try:
-                hex_to_rgb(text) # Check valid
+                hex_to_rgb(text)
                 if is_fg: self.fg_color = text
                 else: self.bg_color = text
                 self.update_results()
@@ -186,11 +183,8 @@ class ContrastCheckerWidget(QWidget):
     def update_results(self):
         ratio = calculate_contrast(self.fg_color, self.bg_color)
         self.ratio_lbl.setText(f"Ratio: {ratio:.2f}:1")
-
-        # Update Preview
         self.preview_lbl.setStyleSheet(f"background-color: {self.bg_color}; color: {self.fg_color}; font-size: 18px; font-weight: bold; padding: 10px; border-radius: 6px;")
 
-        # Update Labels
         def set_lbl(lbl, passed, text):
             lbl.setText(text)
             color = "#4CAF50" if passed else "#F44336"
@@ -201,7 +195,6 @@ class ContrastCheckerWidget(QWidget):
         set_lbl(self.large_aa, ratio >= 3.0, "AA Pass" if ratio >= 3.0 else "AA Fail")
         set_lbl(self.large_aaa, ratio >= 4.5, "AAA Pass" if ratio >= 4.5 else "AAA Fail")
 
-        # Suggestions
         if ratio < 4.5:
             self.suggestion_frame.show()
             better = suggest_passing_color(self.fg_color, self.bg_color)
@@ -214,3 +207,5 @@ class ContrastCheckerWidget(QWidget):
 
     def receive_picked_color(self, hex_val, is_fg):
         self.set_color(hex_val, is_fg)
+        self.raise_()
+        self.activateWindow()

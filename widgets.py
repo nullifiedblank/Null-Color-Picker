@@ -3,6 +3,8 @@ from PySide6.QtWidgets import (QWidget, QLabel, QFrame, QVBoxLayout, QHBoxLayout
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QRect, QEasingCurve, QSize, QTimer, Property
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QClipboard, QCursor
 
+from color_logic import rgb_to_hex, rgb_to_hsl_string, rgb_to_cmyk
+
 class ToggleSwitch(QAbstractButton):
     stateChanged = Signal(bool)
 
@@ -180,13 +182,12 @@ class FlashFrame(QFrame):
 
 class PaletteItem(QWidget):
     """
-    Composite widget: Color Box + Hex + RGB
-    Handles synced hover effects.
+    Composite widget: Color Box + Hex + RGB + HSL + CMYK
+    Handles synced hover effects and dynamic label visibility.
     """
-    def __init__(self, r, g, b):
+    def __init__(self, r, g, b, settings):
         super().__init__()
-        self.hex_val = f"#{r:02X}{g:02X}{b:02X}"
-        self.rgb_val = f"rgb({r}, {g}, {b})"
+        self.color_hex = rgb_to_hex(r, g, b)
 
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -195,21 +196,37 @@ class PaletteItem(QWidget):
         self.setLayout(layout)
 
         # Color Box - Non-interactive for clicks/flash
-        self.box = FlashFrame(self.hex_val, interactive=False)
+        self.box = FlashFrame(self.color_hex, interactive=False)
         self.box.setFixedSize(40, 40)
-
-        # Labels
-        self.hex_lbl = CopyLabel(self.hex_val)
-        self.rgb_lbl = CopyLabel(self.rgb_val)
-
-        # Ensure strict alignment
         layout.addWidget(self.box, 0, Qt.AlignCenter)
-        layout.addWidget(self.hex_lbl, 0, Qt.AlignCenter)
-        layout.addWidget(self.rgb_lbl, 0, Qt.AlignCenter)
+
+        # Create labels based on settings
+        self.labels = []
+
+        if settings.get("show_hex", True):
+            lbl = CopyLabel(self.color_hex)
+            layout.addWidget(lbl, 0, Qt.AlignCenter)
+            self.labels.append(lbl)
+
+        if settings.get("show_rgb", True):
+            lbl = CopyLabel(f"rgb({r}, {g}, {b})")
+            layout.addWidget(lbl, 0, Qt.AlignCenter)
+            self.labels.append(lbl)
+
+        if settings.get("show_hsl", True):
+            lbl = CopyLabel(rgb_to_hsl_string(r, g, b))
+            layout.addWidget(lbl, 0, Qt.AlignCenter)
+            self.labels.append(lbl)
+
+        if settings.get("show_cmyk", True):
+            c, m, y, k = rgb_to_cmyk(r, g, b)
+            lbl = CopyLabel(f"cmyk({c},{m},{y},{k})")
+            layout.addWidget(lbl, 0, Qt.AlignCenter)
+            self.labels.append(lbl)
 
         # Connect Hover Signals
-        self.hex_lbl.hovered.connect(self.on_label_hover)
-        self.rgb_lbl.hovered.connect(self.on_label_hover)
+        for lbl in self.labels:
+            lbl.hovered.connect(self.on_label_hover)
 
     def on_label_hover(self, hovered):
         self.box.set_outline(hovered)

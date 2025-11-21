@@ -14,7 +14,7 @@ from styles import STYLESHEET
 from color_logic import generate_palettes, rgb_to_hex, rgb_to_cmyk, rgb_to_hsl_string
 from icon_gen import create_app_icon, create_gear_icon
 from widgets import ToggleSwitch, CopyLabel, FlashFrame, PaletteItem
-from contrast_ui import ContrastCheckerWidget
+from contrast_ui import ContrastCheckerDialog # Restored Dialog import
 from icc_utils import get_system_monitor_profile_path, convert_to_srgb
 
 # --- Constants ---
@@ -272,120 +272,11 @@ class MagnifierWindow(QWidget):
         if event.key() == Qt.Key_Escape:
             self.stop()
 
-class PaletteRow(QWidget):
-    def __init__(self, title, colors):
-        super().__init__()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        self.setLayout(layout)
-
-        container = QFrame()
-        container.setObjectName("PaletteBox")
-        container_layout = QVBoxLayout()
-        container_layout.setContentsMargins(10, 10, 10, 10)
-        container_layout.setSpacing(5)
-        container.setLayout(container_layout)
-
-        inner_title = QLabel(title)
-        inner_title.setObjectName("PaletteTitle")
-        inner_title.setAlignment(Qt.AlignCenter)
-        container_layout.addWidget(inner_title)
-
-        items_layout = QHBoxLayout()
-        items_layout.setSpacing(0)
-        items_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.addLayout(items_layout)
-
-        items_layout.addStretch(1)
-        for i, c_data in enumerate(colors):
-            if i > 0:
-                vline = QFrame()
-                vline.setFrameShape(QFrame.VLine)
-                vline.setFrameShadow(QFrame.Sunken)
-                vline.setFixedWidth(1)
-                vline.setStyleSheet("background-color: #333333;")
-                vline.setFixedHeight(40)
-                items_layout.addSpacing(10)
-                items_layout.addWidget(vline)
-                items_layout.addSpacing(10)
-            item = PaletteItem(*c_data['rgb'])
-            items_layout.addWidget(item)
-        items_layout.addStretch(1)
-        layout.addWidget(container)
-
-class HistoryGrid(QWidget):
-    """Grid layout for Saved Colors history tab."""
-    color_clicked = Signal(tuple)
-
-    def __init__(self):
-        super().__init__()
-        self.layout = QGridLayout()
-        self.layout.setAlignment(Qt.AlignTop)
-        self.setLayout(self.layout)
-
-    def update_history(self, history_list):
-        # Clear
-        while self.layout.count():
-            child = self.layout.takeAt(0)
-            if child.widget(): child.widget().deleteLater()
-
-        # Populate (reverse order)
-        for i, c_tuple in enumerate(reversed(history_list)):
-            hex_val = rgb_to_hex(*c_tuple)
-            # Use independent FlashFrame
-            swatch = FlashFrame(hex_val, is_history=True)
-            swatch.setFixedSize(50, 50) # Larger for grid
-            # Capture value in default arg
-            swatch.clicked.connect(lambda col=c_tuple: self.color_clicked.emit(col))
-            swatch.setToolTip(f"RGB: {c_tuple}")
-
-            row, col = divmod(i, 5) # 5 columns
-            self.layout.addWidget(swatch, row, col)
-
-class ColorSystemsWidget(QWidget):
-    """Displays detailed breakdown (HEX, RGB, HSL, CMYK) based on settings."""
-    def __init__(self):
-        super().__init__()
-        self.layout = QVBoxLayout()
-        self.layout.setAlignment(Qt.AlignTop)
-        self.setLayout(self.layout)
-        self.labels = {} # type -> CopyLabel
-
-    def update_info(self, r, g, b, settings):
-        # Clear
-        while self.layout.count():
-            child = self.layout.takeAt(0)
-            if child.widget(): child.widget().deleteLater()
-
-        hex_val = rgb_to_hex(r, g, b)
-        rgb_val = f"rgb({r}, {g}, {b})"
-        hsl_val = rgb_to_hsl_string(r, g, b)
-        cmyk_val = "cmyk" + str(rgb_to_cmyk(r, g, b))
-
-        def add_row(title, val):
-            row = QHBoxLayout()
-            lbl = QLabel(title)
-            lbl.setStyleSheet("font-weight: bold; color: #aaaaaa;")
-            val_lbl = CopyLabel(val)
-            val_lbl.setStyleSheet("font-size: 14px; font-family: monospace; color: #ffffff; padding: 8px; border-radius: 4px; background-color: #1e1e1e;")
-            val_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-            row.addWidget(lbl)
-            row.addWidget(val_lbl)
-            self.layout.addLayout(row)
-
-        if settings.get("show_hex", True): add_row("HEX", hex_val)
-        if settings.get("show_rgb", True): add_row("RGB", rgb_val)
-        if settings.get("show_hsl", True): add_row("HSL", hsl_val)
-        if settings.get("show_cmyk", True): add_row("CMYK", cmyk_val)
-
-        self.layout.addStretch()
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Null Color Picker")
-        self.setFixedSize(400, 600) # Compact widget feel
+        self.setFixedSize(900, 800) # Widened as requested
         self.setWindowIcon(load_icon())
 
         # Data
@@ -401,6 +292,8 @@ class MainWindow(QMainWindow):
         self.magnifier.set_sample_size(self.app_settings["sample_size"])
         self.magnifier.set_color_managed(self.app_settings["color_managed"])
         self.magnifier.color_selected.connect(self.add_color)
+
+        self.contrast_dialog = None
 
         # Init
         self.update_ui_with_color(self.current_color)
@@ -431,13 +324,22 @@ class MainWindow(QMainWindow):
 
         # --- Top Bar ---
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(10)
 
+        # Left Buttons
         self.settings_btn = QPushButton()
         self.settings_btn.setIcon(create_gear_icon())
         self.settings_btn.setObjectName("SettingsButton")
         self.settings_btn.setFixedSize(40, 40)
         self.settings_btn.clicked.connect(self.open_settings)
         top_bar.addWidget(self.settings_btn)
+
+        self.contrast_btn = QPushButton(" Contrast")
+        self.contrast_btn.setIcon(QIcon.fromTheme("applications-graphics"))
+        self.contrast_btn.setObjectName("EyedropperButton")
+        self.contrast_btn.setCursor(Qt.PointingHandCursor)
+        self.contrast_btn.clicked.connect(self.open_contrast_checker)
+        top_bar.addWidget(self.contrast_btn)
 
         self.eyedropper_btn = QPushButton(" Eyedropper")
         self.eyedropper_btn.setIcon(load_icon())
@@ -448,55 +350,161 @@ class MainWindow(QMainWindow):
 
         top_bar.addStretch()
 
-        # Current Color Preview Box
+        # Right Color Systems Info (Pinned)
+        self.color_info_layout = QVBoxLayout()
+        self.color_info_layout.setSpacing(2)
+        self.color_info_layout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # Labels will be populated dynamically in update_ui_with_color
+
+        top_bar.addLayout(self.color_info_layout)
+
+        # Preview Box
         self.preview_box = QFrame()
         self.preview_box.setObjectName("PreviewFrame")
-        self.preview_box.setFixedSize(50, 50)
+        self.preview_box.setFixedSize(70, 70)
         top_bar.addWidget(self.preview_box)
 
         main_layout.addLayout(top_bar)
 
-        # --- Tab System ---
+        # --- History (Reverted to Horizontal) ---
+        history_label = QLabel("History")
+        history_label.setObjectName("SectionTitle")
+        main_layout.addWidget(history_label)
+
+        self.history_container = QHBoxLayout()
+        self.history_container.setAlignment(Qt.AlignCenter)
+        self.history_container.setSpacing(5)
+        main_layout.addLayout(self.history_container)
+
+        # --- Color Theory Tabs ---
+        theory_label = QLabel("Color Theory")
+        theory_label.setObjectName("SectionTitle")
+        main_layout.addWidget(theory_label)
+
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
             QTabWidget::pane { border: 1px solid #333; border-radius: 4px; }
             QTabBar::tab { background: #1e1e1e; color: #aaa; padding: 8px 12px; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px; }
             QTabBar::tab:selected { background: #333; color: #fff; font-weight: bold; }
         """)
-
-        # Tab 1: Systems
-        self.tab_systems = ColorSystemsWidget()
-        self.tabs.addTab(self.tab_systems, "Systems")
-
-        # Tab 2: Theory
-        self.tab_theory_scroll = QScrollArea()
-        self.tab_theory_scroll.setWidgetResizable(True)
-        self.tab_theory_content = QWidget()
-        self.tab_theory_content.setObjectName("PaletteContainer")
-        self.tab_theory_layout = QVBoxLayout(self.tab_theory_content)
-        self.tab_theory_scroll.setWidget(self.tab_theory_content)
-        self.tabs.addTab(self.tab_theory_scroll, "Theory")
-
-        # Tab 3: Contrast
-        self.tab_contrast = ContrastCheckerWidget()
-        self.tab_contrast.request_color_pick.connect(self.activate_contrast_picker)
-        self.tabs.addTab(self.tab_contrast, "Contrast")
-
-        # Tab 4: Saved (History)
-        self.tab_saved_scroll = QScrollArea()
-        self.tab_saved_scroll.setWidgetResizable(True)
-        self.tab_saved_content = QWidget()
-        self.tab_saved_content.setObjectName("PaletteContainer")
-        self.tab_saved_grid = HistoryGrid()
-        self.tab_saved_grid.color_clicked.connect(self.update_ui_with_color)
-
-        saved_layout = QVBoxLayout(self.tab_saved_content)
-        saved_layout.addWidget(self.tab_saved_grid)
-        saved_layout.addStretch()
-        self.tab_saved_scroll.setWidget(self.tab_saved_content)
-        self.tabs.addTab(self.tab_saved_scroll, "Saved")
-
         main_layout.addWidget(self.tabs)
+
+    def update_top_bar_info(self, r, g, b):
+        # Clear existing labels
+        while self.color_info_layout.count():
+            child = self.color_info_layout.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+
+        # Add requested systems
+        s = self.app_settings
+
+        def add_lbl(text):
+            lbl = CopyLabel(text)
+            lbl.setStyleSheet("font-size: 13px; font-family: monospace; color: #ffffff; padding: 2px 4px;")
+            lbl.setAlignment(Qt.AlignRight)
+            self.color_info_layout.addWidget(lbl)
+
+        # Hex (always bold/larger if present, or just standard)
+        if s.get("show_hex", True):
+            lbl = CopyLabel(rgb_to_hex(r, g, b))
+            lbl.setStyleSheet("font-size: 20px; font-weight: bold; font-family: monospace; color: #ffffff; padding: 2px 4px;")
+            lbl.setAlignment(Qt.AlignRight)
+            self.color_info_layout.addWidget(lbl)
+
+        if s.get("show_rgb", True): add_lbl(f"rgb({r}, {g}, {b})")
+        if s.get("show_hsl", True): add_lbl(rgb_to_hsl_string(r, g, b))
+        if s.get("show_cmyk", True): add_lbl("cmyk" + str(rgb_to_cmyk(r, g, b)))
+
+    def update_history_ui(self):
+        while self.history_container.count():
+            child = self.history_container.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+
+        # Display last 15 (or fewer) items
+        # self.history contains tuples
+        display_history = self.history[-15:] if len(self.history) > 15 else self.history
+
+        # Reverse for display? Usually history goes Left->Right (Old->New) or vice versa.
+        # Previous implementation was reversed.
+        for c in reversed(display_history):
+            hex_val = rgb_to_hex(*c)
+            swatch = FlashFrame(hex_val, is_history=True, interactive=True)
+            swatch.setFixedSize(35, 35)
+            swatch.clicked.connect(lambda col=c: self.update_ui_with_color(col))
+            swatch.setToolTip(f"RGB: {c}")
+            self.history_container.addWidget(swatch)
+
+    def update_theory_tabs(self, r, g, b):
+        # Store current tab index to restore it
+        current_idx = self.tabs.currentIndex()
+        self.tabs.clear()
+
+        palettes = generate_palettes(r, g, b)
+        # Order of tabs
+        order = ["Monochromatic", "Analogous", "Complementary", "Split Complementary", "Triadic", "Tetradic"]
+
+        for name in order:
+            if name in palettes:
+                # Create a scroll area for the tab content
+                scroll = QScrollArea()
+                scroll.setWidgetResizable(True)
+                content = QWidget()
+                content.setObjectName("PaletteContainer")
+                layout = QHBoxLayout(content) # Horizontal layout for palette items
+                layout.setSpacing(10)
+                layout.setContentsMargins(10, 20, 10, 20)
+
+                # Distribute items
+                layout.addStretch(1)
+                colors = palettes[name]
+                for i, c_data in enumerate(colors):
+                    # Add separator
+                    if i > 0:
+                        vline = QFrame()
+                        vline.setFrameShape(QFrame.VLine)
+                        vline.setFrameShadow(QFrame.Sunken)
+                        vline.setFixedWidth(1)
+                        vline.setStyleSheet("background-color: #333333;")
+                        vline.setFixedHeight(40)
+                        layout.addWidget(vline)
+
+                    # Pass settings for dynamic labels
+                    item = PaletteItem(*c_data['rgb'], self.app_settings)
+                    layout.addWidget(item)
+
+                layout.addStretch(1)
+                scroll.setWidget(content)
+                self.tabs.addTab(scroll, name)
+
+        if current_idx >= 0 and current_idx < self.tabs.count():
+            self.tabs.setCurrentIndex(current_idx)
+
+    def update_ui_with_color(self, color):
+        self.current_color = color
+        hex_val = rgb_to_hex(*color)
+
+        # Preview Box
+        self.preview_box.setStyleSheet(f"background-color: {hex_val}; border: 1px solid #333; border-radius: 8px;")
+
+        # Top Bar Info
+        self.update_top_bar_info(*color)
+
+        # History
+        self.update_history_ui()
+
+        # Theory Tabs
+        self.update_theory_tabs(*color)
+
+    def add_color(self, color):
+        new_color = tuple(color)
+        # FIFO logic: remove oldest if full
+        if len(self.history) >= 15:
+            self.history.pop(0)
+        self.history.append(new_color)
+
+        self.update_ui_with_color(new_color)
+        self.raise_()
+        self.activateWindow()
 
     def activate_eyedropper(self):
         try: self.magnifier.color_selected.disconnect(self.return_contrast_color)
@@ -506,6 +514,14 @@ class MainWindow(QMainWindow):
 
         self.magnifier.color_selected.connect(self.add_color)
         self.magnifier.start()
+
+    def open_contrast_checker(self):
+        if not self.contrast_dialog:
+            self.contrast_dialog = ContrastCheckerDialog(self)
+            self.contrast_dialog.request_color_pick.connect(self.activate_contrast_picker)
+        self.contrast_dialog.show()
+        self.contrast_dialog.raise_()
+        self.contrast_dialog.activateWindow()
 
     def activate_contrast_picker(self, is_fg):
         try: self.magnifier.color_selected.disconnect(self.add_color)
@@ -521,51 +537,8 @@ class MainWindow(QMainWindow):
         self.magnifier.color_selected.connect(self.add_color)
 
         hex_val = rgb_to_hex(*color)
-        self.tab_contrast.receive_picked_color(hex_val, self.contrast_target_is_fg)
-
-        # Switch to Contrast Tab
-        self.tabs.setCurrentIndex(2)
-        self.raise_()
-        self.activateWindow()
-
-    def add_color(self, color):
-        # Ensure we store a tuple copy
-        new_color = tuple(color)
-
-        # Remove if exists? Or just push?
-        # Prompt says: "remove oldest only... history.append(color)"
-        if len(self.history) >= 15:
-            self.history.pop(0)
-        self.history.append(new_color)
-
-        self.update_ui_with_color(new_color)
-        self.raise_()
-        self.activateWindow()
-
-    def update_ui_with_color(self, color):
-        self.current_color = color
-        hex_val = rgb_to_hex(*color)
-
-        # Update Preview Box
-        self.preview_box.setStyleSheet(f"background-color: {hex_val}; border: 1px solid #333; border-radius: 8px;")
-
-        # Update Tabs
-        self.tab_systems.update_info(*color, self.app_settings)
-        self.generate_theory_palettes(*color)
-        self.tab_saved_grid.update_history(self.history)
-
-    def generate_theory_palettes(self, r, g, b):
-        while self.tab_theory_layout.count():
-            child = self.tab_theory_layout.takeAt(0)
-            if child.widget(): child.widget().deleteLater()
-
-        palettes = generate_palettes(r, g, b)
-        order = ["Monochromatic", "Analogous", "Complementary", "Split Complementary", "Triadic", "Tetradic"]
-        for name in order:
-            if name in palettes:
-                row = PaletteRow(name, palettes[name])
-                self.tab_theory_layout.addWidget(row)
-        self.tab_theory_layout.addStretch()
+        if self.contrast_dialog:
+            self.contrast_dialog.receive_picked_color(hex_val, self.contrast_target_is_fg)
 
     def open_settings(self):
         dlg = SettingsDialog(self, self.app_settings)
@@ -577,12 +550,9 @@ class MainWindow(QMainWindow):
     def apply_settings(self, settings):
         self.app_settings = settings
         self.save_settings_file()
-
-        # Apply flags later
         QTimer.singleShot(100, self._apply_settings_deferred)
 
     def _apply_settings_deferred(self):
-        # Win Flags
         current = self.windowFlags()
         new_flags = current
         if self.app_settings["always_on_top"]: new_flags |= Qt.WindowStaysOnTopHint
@@ -592,11 +562,9 @@ class MainWindow(QMainWindow):
             self.setWindowFlags(new_flags)
             self.show()
 
-        # Update components
         self.magnifier.set_sample_size(self.app_settings["sample_size"])
         self.magnifier.set_color_managed(self.app_settings["color_managed"])
 
-        # Refresh UI view
         self.update_ui_with_color(self.current_color)
 
 if __name__ == "__main__":
