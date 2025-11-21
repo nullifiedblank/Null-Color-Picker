@@ -186,8 +186,6 @@ class MagnifierOverlay(QWidget):
 
     def __init__(self):
         super().__init__()
-        # Use Tool + Frameless + StayOnTop.
-        # TranslucentBackground allows drawing on top of desktop.
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_NoSystemBackground)
@@ -216,21 +214,24 @@ class MagnifierOverlay(QWidget):
     def start(self):
         self.is_active = True
 
-        # Cover all screens geometry
+        # Cover all screens
         total_rect = QRect()
         for screen in QApplication.screens():
             total_rect = total_rect.united(screen.geometry())
         self.setGeometry(total_rect)
 
-        self.setMouseTracking(True)
+        # Force window to be active before grabbing input
         self.show()
         self.raise_()
         self.activateWindow()
 
-        # Start update loop
+        # Process events to ensure window is mapped
+        QApplication.processEvents()
+
         self.timer.start(16) # ~60 FPS
 
-        # Grab input to prevent click-through
+        # Grab input
+        self.setFocus()
         self.grabKeyboard()
         self.grabMouse()
 
@@ -246,8 +247,7 @@ class MagnifierOverlay(QWidget):
 
         pos = QCursor.pos()
 
-        # Grab pixels around cursor (20x20 for 200x200 magnifier)
-        # We grab at true cursor pos
+        # Grab pixels around cursor
         grab_x = pos.x() - 10
         grab_y = pos.y() - 10
 
@@ -268,13 +268,22 @@ class MagnifierOverlay(QWidget):
         if not self.is_active: return
 
         painter = QPainter(self)
+
+        # 1. Clear background to 1-alpha black to solve click-through and artifacts
+        # This ensures the window has 'content' for the OS hit-test, but is visually transparent.
+        # CompositionMode_Source ensures we replace the pixel values (including alpha).
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
+
+        # 2. Draw Magnifier Content (SourceOver)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
+
         painter.setRenderHint(QPainter.Antialiasing, False) # Pixel art style
 
-        # Calculate position to draw the magnifier box
-        # We draw it offset from cursor so we don't block the grab area
         pos = QCursor.pos()
         local_pos = self.mapFromGlobal(pos)
 
+        # Offset magnifier box
         box_x = local_pos.x() + 30
         box_y = local_pos.y() + 30
 
@@ -282,20 +291,18 @@ class MagnifierOverlay(QWidget):
         target_rect = QRect(box_x, box_y, 200, 200)
         painter.fillRect(target_rect, Qt.black)
 
-        # Draw Pixmap (Zoomed)
+        # Draw Pixmap
         if hasattr(self, 'pixmap') and not self.pixmap.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
             painter.drawPixmap(target_rect, self.pixmap)
 
-        # Draw Crosshair / Sample Box inside the magnified area
-        # Center of the 200x200 box is (box_x + 100, box_y + 100)
+        # Draw Crosshair
         center_x = box_x + 100
         center_y = box_y + 100
 
         pixel_vis = self.zoom_level
         sample_vis = self.sample_size * pixel_vis
 
-        # Align offset
         offset_pixels = self.sample_size // 2
         draw_x = center_x - (offset_pixels * self.zoom_level)
         draw_y = center_y - (offset_pixels * self.zoom_level)
@@ -308,7 +315,7 @@ class MagnifierOverlay(QWidget):
         painter.setPen(QPen(QColor(0, 0, 0), 1))
         painter.drawRect(draw_x, draw_y, sample_vis, sample_vis)
 
-        # Outer Border of Magnifier
+        # Outer Border
         painter.setPen(QPen(QColor(0, 0, 0), 4))
         painter.drawRect(target_rect)
 
@@ -379,7 +386,7 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
 
-        # Switch to Overlay Magnifier
+        # Use the new Overlay Magnifier
         self.magnifier = MagnifierOverlay()
         self.magnifier.set_sample_size(self.app_settings["sample_size"])
         self.magnifier.set_color_managed(self.app_settings["color_managed"])
