@@ -131,6 +131,20 @@ QLabel#CodeLabel[flashing="true"] {
     color: #000000;
 }
 
+/* Big Hex Label (Top Right) */
+QLabel#BigHexLabel {
+    font-size: 20px;
+    font-weight: bold;
+    font-family: "Consolas", "Monaco", "Menlo", "Courier New", monospace;
+    color: #ffffff;
+    padding: 2px 4px;
+}
+QLabel#BigHexLabel[flashing="true"] {
+    background-color: #ffffff;
+    color: #000000;
+    font-size: 20px; /* Explicitly set font size to prevent shrinking */
+}
+
 /* Selected Preview Area */
 QFrame#PreviewFrame {
     background-color: #1e1e1e;

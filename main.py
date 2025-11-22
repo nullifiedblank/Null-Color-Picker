@@ -61,17 +61,31 @@ class ScreenSampler:
 
     @staticmethod
     def get_pixel_qt(x, y):
-        screen = QApplication.primaryScreen()
-        pixmap = screen.grabWindow(0, x, y, 1, 1)
+        screen = QApplication.screenAt(QPoint(x, y))
+        if not screen:
+            screen = QApplication.primaryScreen()
+
+        # Convert global x,y to screen-local coordinates
+        local_x = x - screen.geometry().x()
+        local_y = y - screen.geometry().y()
+
+        pixmap = screen.grabWindow(0, local_x, local_y, 1, 1)
         c = pixmap.toImage().pixelColor(0, 0)
         return c.red(), c.green(), c.blue()
 
     @staticmethod
     def grab_area(x, y, width, height):
-        # Qt grabWindow(0) usually works fine even with overlays if the overlay is transparent
-        # or if we grab strictly under the mouse where we are NOT drawing.
-        screen = QApplication.primaryScreen()
-        return screen.grabWindow(0, x, y, width, height)
+        # Find the screen containing the area
+        screen = QApplication.screenAt(QPoint(x, y))
+        if not screen:
+            screen = QApplication.primaryScreen()
+
+        # Convert global x,y to screen-local coordinates
+        # grabWindow(0) on a QScreen uses coordinates relative to that screen's geometry
+        local_x = x - screen.geometry().x()
+        local_y = y - screen.geometry().y()
+
+        return screen.grabWindow(0, local_x, local_y, width, height)
 
     @staticmethod
     def get_average_color(x, y, size):
@@ -180,28 +194,24 @@ class SettingsDialog(QDialog):
 
 class MagnifierOverlay(QWidget):
     """
-    Full-screen transparent overlay for capturing clicks and drawing the magnifier.
+    Transparent overlay for capturing inputs and drawing the magnifier near cursor.
     """
     color_selected = Signal(tuple)
 
     def __init__(self):
         super().__init__()
-        # Use Tool + Frameless + StayOnTop.
-        # TranslucentBackground allows drawing on top of desktop.
+        # Tool + Frameless + StayOnTop + Translucent
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        # Removed WA_TranslucentBackground to avoid transparency issues with grabbing.
-        # We will paint opaque but emulate transparency by drawing screenshot.
-        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False) # Ensure we get mouse events
+        self.setMouseTracking(True) # Track mouse without button press
 
         self.timer = QTimer(self)
-        # self.timer.timeout.connect(self.update_view) # Not using timer loop for grabbing anymore
+        self.timer.timeout.connect(self.update_view)
 
-        self.current_color = (0, 0, 0)
         self.sample_size = 1
         self.zoom_level = 10
         self.is_active = False
-
-        self.screenshots = [] # List of (rect, pixmap)
 
         # ICC
         self.color_managed = True
@@ -218,158 +228,112 @@ class MagnifierOverlay(QWidget):
     def start(self):
         self.is_active = True
 
-        # 1. Capture all screens (Snapshot)
-        self.screenshots = []
+        # Cover all screens with the transparent window
         total_rect = QRect()
-        screens = QApplication.screens()
+        for screen in QApplication.screens():
+            total_rect = total_rect.united(screen.geometry())
 
-        # Briefly process events to ensure UI is updated before grab if needed
-        QApplication.processEvents()
-
-        for screen in screens:
-            geo = screen.geometry()
-            # Grab the screen content
-            pix = screen.grabWindow(0)
-            self.screenshots.append((geo, pix))
-            total_rect = total_rect.united(geo)
-
-        # 2. Set overlay geometry to cover everything
         self.setGeometry(total_rect)
 
-        # 3. Show and Activate
         self.show()
         self.raise_()
         self.activateWindow()
-
-        # 4. Grab Input
-        QApplication.processEvents() # Ensure window is mapped
         self.setFocus()
+
+        # Grab Input to prevent interaction with other apps
         self.grabKeyboard()
         self.grabMouse()
 
+        self.timer.start(16) # ~60 FPS
+
     def stop(self):
         self.is_active = False
+        self.timer.stop()
         self.releaseKeyboard()
         self.releaseMouse()
         self.hide()
-        self.screenshots = [] # Clear memory
 
-    def get_color_at(self, global_pos):
-        # Find which screenshot contains the point
-        for geo, pix in self.screenshots:
-            if geo.contains(global_pos):
-                local_pos = global_pos - geo.topLeft()
-
-                # If sample size > 1, we should average.
-                # For simplicity/speed in snapshot mode, getting single pixel or small area from QPixmap is fast.
-
-                if self.sample_size <= 1:
-                    c = pix.toImage().pixelColor(local_pos)
-                    return c.red(), c.green(), c.blue()
-                else:
-                    # Average
-                    start_x = local_pos.x() - (self.sample_size // 2)
-                    start_y = local_pos.y() - (self.sample_size // 2)
-                    copy = pix.copy(start_x, start_y, self.sample_size, self.sample_size).toImage()
-
-                    total_r, total_g, total_b, count = 0, 0, 0, 0
-                    for i in range(copy.width()):
-                        for j in range(copy.height()):
-                            c = copy.pixelColor(i, j)
-                            total_r += c.red(); total_g += c.green(); total_b += c.blue()
-                            count += 1
-                    if count == 0: return 0, 0, 0
-                    return (int(total_r / count), int(total_g / count), int(total_b / count))
-
-        return 0, 0, 0
-
-    def get_magnifier_pixmap(self, global_pos):
-        # Grab 20x20 area around cursor from screenshots
-        # We might bridge across screens, but handling that perfectly is complex.
-        # We'll grab from the screen containing the center.
-
-        grab_rect = QRect(global_pos.x() - 10, global_pos.y() - 10, 20, 20)
-
-        for geo, pix in self.screenshots:
-            if geo.contains(global_pos):
-                # Crop relative to this screen
-                # If edge case (near border), this truncates.
-                # For 'Pixel Perfect', fixing border crossing is nice but secondary to functionality.
-
-                local_rect = grab_rect.translated(-geo.topLeft())
-                return pix.copy(local_rect)
-
-        return QPixmap(20, 20) # Empty if off-screen
+    def update_view(self):
+        if self.is_active:
+            self.update() # Trigger paintEvent
 
     def paintEvent(self, event):
-        if not self.is_active or not self.screenshots: return
+        if not self.is_active: return
 
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
 
-        # 1. Draw Background (The Screenshots)
-        # This effectively "freezes" the screen visually
-        for geo, pix in self.screenshots:
-            # Convert global geo to local overlay coordinates
-            # Since overlay geometry == total_rect, we need to map.
-            # Actually, if overlay is at (0,0) of virtual desktop (typical),
-            # but usually total_rect topLeft might be negative (multi monitor).
-            # painter uses widget coordinates.
-            # We need to map screen geo to widget coords.
+        # We do not draw the full background (it's transparent)
 
-            draw_pos = self.mapFromGlobal(geo.topLeft())
-            painter.drawPixmap(draw_pos, pix)
-
-        # 2. Draw Magnifier UI
         pos = QCursor.pos()
         local_pos = self.mapFromGlobal(pos)
 
-        box_x = local_pos.x() + 30
-        box_y = local_pos.y() + 30
+        # Offset magnifier to the right of the cursor
+        offset_x = 30
+        offset_y = 30
+        box_x = local_pos.x() + offset_x
+        box_y = local_pos.y() + offset_y
 
-        # Draw Box Background
-        target_rect = QRect(box_x, box_y, 200, 200)
+        preview_size = 200
+        target_rect = QRect(box_x, box_y, preview_size, preview_size)
+
+        # Draw Box Background (Black)
         painter.fillRect(target_rect, Qt.black)
 
-        # Get Zoom Content
-        zoomed_pix = self.get_magnifier_pixmap(pos)
-        if not zoomed_pix.isNull():
-            painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
-            painter.drawPixmap(target_rect, zoomed_pix)
+        # Capture content dynamically (Real-time)
+        # Capture 20x20 area around cursor
+        # Note: x-10 to x+10. Our drawn box is at x+30. No overlap.
+        pix = ScreenSampler.grab_area(pos.x() - 10, pos.y() - 10, 20, 20)
 
-        # Update current color for emission (not drawing text, just internal state)
-        raw_color = self.get_color_at(pos)
-        if self.color_managed and self.icc_path:
-            self.current_color = convert_to_srgb(*raw_color, self.icc_path)
-        else:
-            self.current_color = raw_color
+        if not pix.isNull():
+            painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
+            painter.drawPixmap(target_rect, pix)
 
         # Draw Crosshair / Grid
-        center_x = box_x + 100
-        center_y = box_y + 100
+        center_x = box_x + (preview_size // 2)
+        center_y = box_y + (preview_size // 2)
 
-        pixel_vis = self.zoom_level
+        pixel_vis = self.zoom_level # 10
+
+        # Center grid representing sample area
         sample_vis = self.sample_size * pixel_vis
-
-        offset_pixels = self.sample_size // 2
-        draw_x = center_x - (offset_pixels * self.zoom_level)
-        draw_y = center_y - (offset_pixels * self.zoom_level)
+        offset = sample_vis / 2
+        draw_x = center_x - offset
+        draw_y = center_y - offset
 
         painter.setPen(QPen(QColor(255, 255, 255), 1))
         painter.drawRect(draw_x - 1, draw_y - 1, sample_vis + 2, sample_vis + 2)
         painter.setPen(QPen(QColor(0, 0, 0), 1))
         painter.drawRect(draw_x, draw_y, sample_vis, sample_vis)
-        painter.setPen(QPen(QColor(0, 0, 0), 4))
+
+        # Outer Border
+        painter.setPen(QPen(QColor(255, 255, 255), 2))
         painter.drawRect(target_rect)
 
     def mouseMoveEvent(self, event):
-        # Force repaint to follow mouse
         self.update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self.color_selected.emit(self.current_color)
+            # IMPORTANT: Hide overlay before sampling to avoid picking the overlay itself
             self.stop()
+            QApplication.processEvents()
+
+            pos = QCursor.pos()
+
+            # Use ScreenSampler which has Win32 fallback logic
+            if self.sample_size <= 1:
+                raw_color = ScreenSampler.get_pixel_color(pos.x(), pos.y())
+            else:
+                raw_color = ScreenSampler.get_average_color(pos.x(), pos.y(), self.sample_size)
+
+            # ICC Correction
+            if self.color_managed and self.icc_path:
+                final_color = convert_to_srgb(*raw_color, self.icc_path)
+            else:
+                final_color = raw_color
+
+            self.color_selected.emit(final_color)
         elif event.button() == Qt.RightButton:
             self.stop()
 
@@ -640,7 +604,7 @@ class MainWindow(QMainWindow):
 
         if s.get("show_hex", True):
             lbl = CopyLabel(rgb_to_hex(r, g, b))
-            lbl.setStyleSheet("font-size: 20px; font-weight: bold; font-family: monospace; color: #ffffff; padding: 2px 4px;")
+            lbl.setObjectName("BigHexLabel")
             lbl.setAlignment(Qt.AlignRight)
             self.color_info_layout.addWidget(lbl)
 
