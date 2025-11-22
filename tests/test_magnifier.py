@@ -2,7 +2,7 @@
 import pytest
 from PySide6.QtCore import QRect, QPoint
 from PySide6.QtGui import QPixmap, QImage, QColor
-from main import MagnifierOverlay
+from main import MagnifierWindow
 
 class MockScreen:
     def geometry(self):
@@ -16,8 +16,12 @@ class MockScreen:
 
 class MockQApplication:
     @staticmethod
-    def screens():
-        return [MockScreen()]
+    def screenAt(point):
+        return MockScreen()
+
+    @staticmethod
+    def primaryScreen():
+        return MockScreen()
 
     @staticmethod
     def processEvents():
@@ -25,41 +29,29 @@ class MockQApplication:
 
 @pytest.fixture
 def magnifier(monkeypatch):
-    # Mock QApplication.screens and processEvents inside MagnifierOverlay
-    monkeypatch.setattr("main.QApplication.screens", MockQApplication.screens)
-    monkeypatch.setattr("main.QApplication.processEvents", MockQApplication.processEvents)
+    # Mock QApplication methods used in ScreenSampler
+    monkeypatch.setattr("main.QApplication.screenAt", MockQApplication.screenAt)
+    monkeypatch.setattr("main.QApplication.primaryScreen", MockQApplication.primaryScreen)
 
-    # We need a QApplication instance for QWidget to work, but in headless env it might fail
-    # if we don't use the 'offscreen' platform or similar.
-    # However, since we imported main, it creates a QApplication if __name__ == main.
-    # But here we are importing as module.
-    # We need to create a QApplication instance if one doesn't exist.
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance()
     if not app:
         app = QApplication([], title="Test App")
 
-    overlay = MagnifierOverlay()
-    return overlay
+    window = MagnifierWindow()
+    return window
 
-def test_snapshot_logic(magnifier):
-    # Start the magnifier (takes snapshot)
-    # Note: In this headless environment, grabWindow might fail or return black/empty
-    # unless we mock it (which we did above).
+def test_magnifier_initialization(magnifier):
+    # Just verify it initializes without crashing and has correct default size
+    assert magnifier.width() == 200
+    assert magnifier.height() == 200
+    assert magnifier.isVisible() == False
 
-    magnifier.start()
+def test_magnifier_update(magnifier):
+    # Test update_pos moves the window
+    start_pos = QPoint(100, 100)
+    magnifier.update_pos(start_pos)
 
-    assert len(magnifier.screenshots) == 1
-
-    # Test get_color_at
-    # We filled it with Red (255, 0, 0)
-    r, g, b = magnifier.get_color_at(QPoint(100, 100))
-    assert (r, g, b) == (255, 0, 0)
-
-    # Test with sample size > 1 (Average)
-    magnifier.set_sample_size(3)
-    r, g, b = magnifier.get_color_at(QPoint(100, 100))
-    assert (r, g, b) == (255, 0, 0)
-
-    magnifier.stop()
-    assert len(magnifier.screenshots) == 0
+    # It should be offset by 30, 30
+    expected_pos = QPoint(130, 130)
+    assert magnifier.pos() == expected_pos

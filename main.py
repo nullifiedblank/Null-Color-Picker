@@ -268,7 +268,7 @@ class MagnifierWindow(QWidget):
 class BlockerWindow(QWidget):
     """
     Window 3: Floating window for INPUT only.
-    Follows mouse CENTERED. 100% Transparent. Consumes clicks.
+    Follows mouse CENTERED. Almost Transparent (alpha=1). Consumes clicks.
     """
     clicked = Signal()
 
@@ -286,16 +286,20 @@ class BlockerWindow(QWidget):
         # Center on cursor
         self.move(pos.x() - 100, pos.y() - 100)
 
+    def paintEvent(self, event):
+        # IMPORTANT: We must paint something (even if almost transparent)
+        # for Windows to register the window as a click target.
+        # Fully transparent (alpha=0) windows often pass clicks through.
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 1))
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit()
-        # We can optionally handle Right Click to cancel
+            event.accept() # Explicitly consume the event
         elif event.button() == Qt.RightButton:
-            self.clicked.emit() # Treat as click but logic elsewhere might distinguish?
-            # For now, main logic handles cancel separately or treat as pick?
-            # Actually standard behavior is right click = cancel.
-            # I'll emit a separate signal or just clicked and let logic handle?
-            # Let's stick to clicked() and let Main handle logic.
+            self.clicked.emit()
+            event.accept()
 
 class MainWindow(QMainWindow):
     def __init__(self):
