@@ -1,48 +1,32 @@
+
 # Null Color Picker
 
-A modern, dark-mode color picker and contrast checker built with Python and PySide6.
+A modern, dark-mode Windows desktop color picker built with Python and PySide6.
 
 ## Features
-- **Global Eyedropper**: Zoom in and pick colors from anywhere on your screen.
-- **Color History**: Keeps track of your recently picked colors.
-- **Color Theory**: Automatically generates Monochromatic, Analogous, Complementary, and other palettes.
-- **Contrast Checker**: Check WCAG contrast ratios between foreground and background colors.
-- **Customizable**: Toggle "Always on Top" and adjust sample size (1x1, 3x3, etc.).
-
-## Prerequisites
-- Python 3.8 or higher
-- pip
+- **Global Eyedropper:** Pick colors from anywhere on your screen with a magnified preview.
+- **Color History:** Keeps track of your last 15 picked colors.
+- **Color Theory:** Automatically generates Monochromatic, Analogous, Complementary, and other palettes.
+- **Contrast Checker:** Check WCAG contrast compliance between two colors.
+- **ICC Profile Support:** Correctly handles color profiles for accurate sampling.
 
 ## Installation
 
-1.  **Install Dependencies**
-    ```bash
-    pip install PySide6 pyinstaller
-    ```
+1. **Install Python 3.10+**
+2. **Install Dependencies:**
+   ```bash
+   pip install PySide6 Pillow pyinstaller
+   ```
+   *(Note: `Pillow` is required for ICC profile management)*
 
-2.  **Prepare Your Icon**
-    *   Place your icon file in the same folder as `main.py`.
-    *   **Windows**: Name it `icon.ico`.
-    *   **Mac/Linux**: Name it `icon.png`.
-
-## Build Instructions
-
-To create a standalone executable (e.g., `.exe` on Windows) that includes your custom icon:
-
-### Windows
-Run this command in your terminal:
+## Running the App
 ```bash
-pyinstaller --noconfirm --windowed --onefile --icon=icon.ico --add-data "icon.ico;." --name "NullColorPicker" main.py
+python main.py
 ```
-*   `--icon=icon.ico`: Sets the file icon (visible in Explorer).
-*   `--add-data "icon.ico;."`: Bundles the icon inside the app so the window title bar uses it.
 
-### Linux / macOS
-Run this command:
+## Compiling to .exe
+To build a standalone executable:
 ```bash
-pyinstaller --noconfirm --windowed --onefile --icon=icon.png --add-data "icon.png:." --name "NullColorPicker" main.py
+pyinstaller --noconfirm --windowed --onefile --name "NullColorPicker" --add-data "icon.ico;." main.py
 ```
-*   Note the separator for `--add-data` is a colon `:` on Unix systems, but a semicolon `;` on Windows.
-
-## Output
-The built application will be located in the `dist/` folder.
+*(Ensure you have an `icon.ico` file, or remove the `--add-data` and icon flags)*

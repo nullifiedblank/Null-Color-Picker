@@ -274,16 +274,23 @@ class MagnifierOverlay(QWidget):
         box_x = local_pos.x() + offset_x
         box_y = local_pos.y() + offset_y
 
-        preview_size = 200
+        # Use ODD number for capture size to ensure exact center pixel
+        capture_size = 15
+        half_size = capture_size // 2 # 7
+
+        # Zoom level (display pixels per screen pixel)
+        zoom = 10
+
+        preview_size = capture_size * zoom # 150
         target_rect = QRect(box_x, box_y, preview_size, preview_size)
 
         # Draw Box Background (Black)
         painter.fillRect(target_rect, Qt.black)
 
         # Capture content dynamically (Real-time)
-        # Capture 20x20 area around cursor
-        # Note: x-10 to x+10. Our drawn box is at x+30. No overlap.
-        pix = ScreenSampler.grab_area(pos.x() - 10, pos.y() - 10, 20, 20)
+        # Capture 15x15 area around cursor
+        # x - 7 to x + 7 (total 15 pixels). Center is exactly at pos.
+        pix = ScreenSampler.grab_area(pos.x() - half_size, pos.y() - half_size, capture_size, capture_size)
 
         if not pix.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
@@ -293,18 +300,24 @@ class MagnifierOverlay(QWidget):
         center_x = box_x + (preview_size // 2)
         center_y = box_y + (preview_size // 2)
 
-        pixel_vis = self.zoom_level # 10
+        # Center is pixel index 7 (0-14).
+        # Visually, pixel 7 spans from [7*zoom] to [8*zoom] relative to box.
+        # 7 * 10 = 70. 8 * 10 = 80.
+        # Box center is 150 / 2 = 75.
+        # So center of box is exactly in the middle of the central pixel.
 
-        # Center grid representing sample area
-        sample_vis = self.sample_size * pixel_vis
+        # Sample Size Indicator (e.g. 1x1, 3x3)
+        sample_vis = self.sample_size * zoom
         offset = sample_vis / 2
+
+        # We want to draw the rect centered at the exact center of the widget
         draw_x = center_x - offset
         draw_y = center_y - offset
 
         painter.setPen(QPen(QColor(255, 255, 255), 1))
-        painter.drawRect(draw_x - 1, draw_y - 1, sample_vis + 2, sample_vis + 2)
+        painter.drawRect(int(draw_x) - 1, int(draw_y) - 1, int(sample_vis) + 2, int(sample_vis) + 2)
         painter.setPen(QPen(QColor(0, 0, 0), 1))
-        painter.drawRect(draw_x, draw_y, sample_vis, sample_vis)
+        painter.drawRect(int(draw_x), int(draw_y), int(sample_vis), int(sample_vis))
 
         # Outer Border
         painter.setPen(QPen(QColor(255, 255, 255), 2))
@@ -315,9 +328,9 @@ class MagnifierOverlay(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # IMPORTANT: Hide overlay before sampling to avoid picking the overlay itself
-            self.stop()
-            QApplication.processEvents()
+            # IMPORTANT: Consume the click to prevent click-through.
+            # Do NOT hide overlay immediately, as that might allow the click to propagate
+            # or cause "flashing". Sample first.
 
             pos = QCursor.pos()
 
@@ -326,6 +339,9 @@ class MagnifierOverlay(QWidget):
                 raw_color = ScreenSampler.get_pixel_color(pos.x(), pos.y())
             else:
                 raw_color = ScreenSampler.get_average_color(pos.x(), pos.y(), self.sample_size)
+
+            # Stop/Hide AFTER sampling
+            self.stop()
 
             # ICC Correction
             if self.color_managed and self.icc_path:
