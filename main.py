@@ -192,125 +192,67 @@ class SettingsDialog(QDialog):
         self.save_settings()
         super().closeEvent(event)
 
-class MagnifierOverlay(QWidget):
+class MagnifierWindow(QWidget):
     """
-    Transparent overlay for capturing inputs and drawing the magnifier near cursor.
+    Window 2: Floating window for VISUALS only.
+    Follows mouse with offset. Transparent to mouse events.
     """
-    color_selected = Signal(tuple)
-
     def __init__(self):
         super().__init__()
-        # Tool + Frameless + StayOnTop + Translucent
+        # Tool + Frameless + StayOnTop + TransparentForMouse
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, False) # Ensure we get mouse events
-        self.setMouseTracking(True) # Track mouse without button press
-
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_view)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True) # Let clicks pass through
 
         self.sample_size = 1
         self.zoom_level = 10
-        self.is_active = False
+        self.cursor_pos = QCursor.pos()
 
-        # ICC
-        self.color_managed = True
-        self.icc_path = get_system_monitor_profile_path()
+        # Visual Size
+        self.setFixedSize(200, 200)
 
     def set_sample_size(self, size):
         self.sample_size = size
 
-    def set_color_managed(self, enabled):
-        self.color_managed = enabled
-        if enabled and not self.icc_path:
-            self.icc_path = get_system_monitor_profile_path()
-
-    def start(self):
-        self.is_active = True
-
-        # Cover all screens with the transparent window
-        total_rect = QRect()
-        for screen in QApplication.screens():
-            total_rect = total_rect.united(screen.geometry())
-
-        self.setGeometry(total_rect)
-
-        self.show()
-        self.raise_()
-        self.activateWindow()
-        self.setFocus()
-
-        # Grab Input to prevent interaction with other apps
-        self.grabKeyboard()
-        self.grabMouse()
-
-        self.timer.start(16) # ~60 FPS
-
-    def stop(self):
-        self.is_active = False
-        self.timer.stop()
-        self.releaseKeyboard()
-        self.releaseMouse()
-        self.hide()
-
-    def update_view(self):
-        if self.is_active:
-            self.update() # Trigger paintEvent
+    def update_pos(self, pos):
+        self.cursor_pos = pos
+        # Offset: +30, +30 from cursor
+        self.move(pos.x() + 30, pos.y() + 30)
+        self.update() # Trigger paint
 
     def paintEvent(self, event):
-        if not self.is_active: return
-
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
 
-        # We do not draw the full background (it's transparent)
+        # Background
+        painter.fillRect(self.rect(), Qt.black)
 
-        pos = QCursor.pos()
-        local_pos = self.mapFromGlobal(pos)
-
-        # Offset magnifier to the right of the cursor
-        offset_x = 30
-        offset_y = 30
-        box_x = local_pos.x() + offset_x
-        box_y = local_pos.y() + offset_y
-
-        # Use ODD number for capture size to ensure exact center pixel
+        # Capture Specs
         capture_size = 15
         half_size = capture_size // 2 # 7
+        preview_size = capture_size * self.zoom_level # 150
 
-        # Zoom level (display pixels per screen pixel)
-        zoom = 10
-
-        preview_size = capture_size * zoom # 150
+        # Center rect inside the 200x200 widget
+        box_x = (self.width() - preview_size) // 2
+        box_y = (self.height() - preview_size) // 2
         target_rect = QRect(box_x, box_y, preview_size, preview_size)
 
-        # Draw Box Background (Black)
-        painter.fillRect(target_rect, Qt.black)
-
-        # Capture content dynamically (Real-time)
-        # Capture 15x15 area around cursor
-        # x - 7 to x + 7 (total 15 pixels). Center is exactly at pos.
-        pix = ScreenSampler.grab_area(pos.x() - half_size, pos.y() - half_size, capture_size, capture_size)
+        # Capture
+        pix = ScreenSampler.grab_area(self.cursor_pos.x() - half_size,
+                                      self.cursor_pos.y() - half_size,
+                                      capture_size, capture_size)
 
         if not pix.isNull():
             painter.setRenderHint(QPainter.SmoothPixmapTransform, False)
             painter.drawPixmap(target_rect, pix)
 
-        # Draw Crosshair / Grid
+        # Grid / Crosshair
         center_x = box_x + (preview_size // 2)
         center_y = box_y + (preview_size // 2)
 
-        # Center is pixel index 7 (0-14).
-        # Visually, pixel 7 spans from [7*zoom] to [8*zoom] relative to box.
-        # 7 * 10 = 70. 8 * 10 = 80.
-        # Box center is 150 / 2 = 75.
-        # So center of box is exactly in the middle of the central pixel.
-
-        # Sample Size Indicator (e.g. 1x1, 3x3)
-        sample_vis = self.sample_size * zoom
+        sample_vis = self.sample_size * self.zoom_level
         offset = sample_vis / 2
 
-        # We want to draw the rect centered at the exact center of the widget
         draw_x = center_x - offset
         draw_y = center_y - offset
 
@@ -319,86 +261,41 @@ class MagnifierOverlay(QWidget):
         painter.setPen(QPen(QColor(0, 0, 0), 1))
         painter.drawRect(int(draw_x), int(draw_y), int(sample_vis), int(sample_vis))
 
-        # Outer Border
+        # Border
         painter.setPen(QPen(QColor(255, 255, 255), 2))
         painter.drawRect(target_rect)
 
-    def mouseMoveEvent(self, event):
-        self.update()
+class BlockerWindow(QWidget):
+    """
+    Window 3: Floating window for INPUT only.
+    Follows mouse CENTERED. 100% Transparent. Consumes clicks.
+    """
+    clicked = Signal()
+
+    def __init__(self):
+        super().__init__()
+        # Tool + Frameless + StayOnTop + Translucent
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        # NOTE: WA_TransparentForMouseEvents is DEFAULT False (which is what we want)
+
+        # Size same as magnifier (approx) to catch clicks reliably
+        self.setFixedSize(200, 200)
+
+    def update_pos(self, pos):
+        # Center on cursor
+        self.move(pos.x() - 100, pos.y() - 100)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            # IMPORTANT: Consume the click to prevent click-through.
-            # Do NOT hide overlay immediately, as that might allow the click to propagate
-            # or cause "flashing". Sample first.
-
-            pos = QCursor.pos()
-
-            # Use ScreenSampler which has Win32 fallback logic
-            if self.sample_size <= 1:
-                raw_color = ScreenSampler.get_pixel_color(pos.x(), pos.y())
-            else:
-                raw_color = ScreenSampler.get_average_color(pos.x(), pos.y(), self.sample_size)
-
-            # Stop/Hide AFTER sampling
-            self.stop()
-
-            # ICC Correction
-            if self.color_managed and self.icc_path:
-                final_color = convert_to_srgb(*raw_color, self.icc_path)
-            else:
-                final_color = raw_color
-
-            self.color_selected.emit(final_color)
+            self.clicked.emit()
+        # We can optionally handle Right Click to cancel
         elif event.button() == Qt.RightButton:
-            self.stop()
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape:
-            self.stop()
-
-class PaletteRow(QWidget):
-    def __init__(self, title, colors, settings):
-        super().__init__()
-        layout = QVBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
-        self.setLayout(layout)
-
-        container = QFrame()
-        container.setObjectName("PaletteBox")
-        container_layout = QVBoxLayout()
-        container_layout.setContentsMargins(10, 10, 10, 10)
-        container_layout.setSpacing(5)
-        container.setLayout(container_layout)
-
-        inner_title = QLabel(title)
-        inner_title.setObjectName("PaletteTitle")
-        inner_title.setAlignment(Qt.AlignCenter)
-        container_layout.addWidget(inner_title)
-
-        items_layout = QHBoxLayout()
-        items_layout.setSpacing(0)
-        items_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.addLayout(items_layout)
-
-        items_layout.addStretch(1)
-        for i, c_data in enumerate(colors):
-            if i > 0:
-                vline = QFrame()
-                vline.setFrameShape(QFrame.VLine)
-                vline.setFrameShadow(QFrame.Sunken)
-                vline.setFixedWidth(1)
-                vline.setStyleSheet("background-color: #333333;")
-                vline.setFixedHeight(40)
-                items_layout.addSpacing(10)
-                items_layout.addWidget(vline)
-                items_layout.addSpacing(10)
-
-            item = PaletteItem(*c_data['rgb'], settings)
-            items_layout.addWidget(item)
-        items_layout.addStretch(1)
-        layout.addWidget(container)
+            self.clicked.emit() # Treat as click but logic elsewhere might distinguish?
+            # For now, main logic handles cancel separately or treat as pick?
+            # Actually standard behavior is right click = cancel.
+            # I'll emit a separate signal or just clicked and let logic handle?
+            # Let's stick to clicked() and let Main handle logic.
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -417,13 +314,16 @@ class MainWindow(QMainWindow):
 
         self.setup_ui()
 
-        # Use the new Overlay Magnifier
-        self.magnifier = MagnifierOverlay()
-        self.magnifier.set_sample_size(self.app_settings["sample_size"])
-        self.magnifier.set_color_managed(self.app_settings["color_managed"])
-        self.magnifier.color_selected.connect(self.add_color)
+        # Helper Objects
+        self.magnifier_win = None
+        self.blocker_win = None
+        self.picker_timer = QTimer()
+        self.picker_timer.timeout.connect(self.tick_picker)
 
         self.contrast_dialog = None
+
+        # ICC
+        self.icc_path = get_system_monitor_profile_path()
 
         self.update_ui_with_color((255, 255, 255))
 
@@ -536,8 +436,8 @@ class MainWindow(QMainWindow):
             self.setWindowFlags(new_flags)
             self.show()
 
-        self.magnifier.set_sample_size(self.app_settings["sample_size"])
-        self.magnifier.set_color_managed(self.app_settings["color_managed"])
+        if self.app_settings["color_managed"] and not self.icc_path:
+            self.icc_path = get_system_monitor_profile_path()
 
         self.update_ui_with_color(self.current_color)
 
@@ -549,28 +449,74 @@ class MainWindow(QMainWindow):
         self.contrast_dialog.raise_()
         self.contrast_dialog.activateWindow()
 
-    def activate_eyedropper(self):
-        try: self.magnifier.color_selected.disconnect(self.return_contrast_color)
-        except: pass
-        try: self.magnifier.color_selected.disconnect(self.add_color)
-        except: pass
+    # --- Eyedropper Logic ---
 
-        self.magnifier.color_selected.connect(self.add_color)
-        self.magnifier.start()
+    def activate_eyedropper(self):
+        # Standard activation for Main UI
+        self.start_picker(self.add_color)
 
     def activate_contrast_picker(self, is_fg):
-        try: self.magnifier.color_selected.disconnect(self.add_color)
-        except: pass
-
         self.contrast_target_is_fg = is_fg
-        self.magnifier.color_selected.connect(self.return_contrast_color)
-        self.magnifier.start()
+        self.start_picker(self.return_contrast_color)
+
+    def start_picker(self, callback):
+        # Init windows if needed
+        if not self.magnifier_win:
+            self.magnifier_win = MagnifierWindow()
+        if not self.blocker_win:
+            self.blocker_win = BlockerWindow()
+            self.blocker_win.clicked.connect(self.on_blocker_clicked)
+
+        # Set settings
+        self.magnifier_win.set_sample_size(self.app_settings["sample_size"])
+
+        # Store callback
+        self.picker_callback = callback
+
+        # Show Windows
+        self.magnifier_win.show()
+        self.blocker_win.show()
+
+        # Start Tracking
+        self.picker_timer.start(10) # 100Hz update
+
+    def tick_picker(self):
+        pos = QCursor.pos()
+        if self.magnifier_win and self.magnifier_win.isVisible():
+            self.magnifier_win.update_pos(pos)
+        if self.blocker_win and self.blocker_win.isVisible():
+            self.blocker_win.update_pos(pos)
+
+    def on_blocker_clicked(self):
+        # Stop tracking
+        self.picker_timer.stop()
+
+        # Hide Overlay Windows BEFORE sampling
+        if self.blocker_win: self.blocker_win.hide()
+        if self.magnifier_win: self.magnifier_win.hide()
+
+        QApplication.processEvents()
+
+        # Sample
+        pos = QCursor.pos()
+        size = self.app_settings["sample_size"]
+
+        if size <= 1:
+            raw_color = ScreenSampler.get_pixel_color(pos.x(), pos.y())
+        else:
+            raw_color = ScreenSampler.get_average_color(pos.x(), pos.y(), size)
+
+        # ICC
+        if self.app_settings["color_managed"] and self.icc_path:
+            final_color = convert_to_srgb(*raw_color, self.icc_path)
+        else:
+            final_color = raw_color
+
+        # Callback
+        if self.picker_callback:
+            self.picker_callback(final_color)
 
     def return_contrast_color(self, color):
-        try: self.magnifier.color_selected.disconnect(self.return_contrast_color)
-        except: pass
-        self.magnifier.color_selected.connect(self.add_color)
-
         hex_val = rgb_to_hex(*color)
         if self.contrast_dialog:
             self.contrast_dialog.receive_picked_color(hex_val, self.contrast_target_is_fg)
