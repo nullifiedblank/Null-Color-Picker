@@ -11,5 +11,5 @@ A modern, dark-mode Windows desktop color picker built with Python and PySide6.
 - **ICC Profile Support:** Correctly handles color profiles for accurate sampling.
 
 ## Installation
-- **Download NullColorPicker.exe**
+- **Download [NullColorPicker.exe](https://direct-link.net/1452596/W1ijGYLxy8lJ)**
 - Run and enjoy.
