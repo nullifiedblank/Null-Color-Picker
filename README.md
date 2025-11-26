@@ -9,3 +9,7 @@ A modern, dark-mode Windows desktop color picker built with Python and PySide6.
 - **Color Theory:** Automatically generates Monochromatic, Analogous, Complementary, and other palettes.
 - **Contrast Checker:** Check WCAG contrast compliance between two colors.
 - **ICC Profile Support:** Correctly handles color profiles for accurate sampling.
+
+## Installation
+- **Download NullColorPicker.exe**
+- Run and enjoy.
